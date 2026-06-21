@@ -808,13 +808,18 @@ class App:
         threading.Thread(target=check, daemon=True).start()
 
     def _update_douyin_status_ui(self, args):
-        """Update Douyin status label on main thread (status bar + step 7)"""
+        """Update Douyin status label on main thread (status bar + step 7)
+        and auto-prompt login if not logged in."""
         text, color = args
         self.douyin_status_label.config(text=text, foreground=color)
         try:
             self.step7_status_label.config(text=text, foreground=color)
         except Exception:
             pass
+        # Auto open login dialog when not logged in (after initial check)
+        if text == '未登录' and not getattr(self, '_login_auto_prompted', False):
+            self._login_auto_prompted = True
+            self.root.after(500, self._login_douyin_dialog)
 
     # ----------------------------------------------------------------
     # Step 7: Publish operation
