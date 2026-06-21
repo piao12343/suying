@@ -1,0 +1,5 @@
+你电脑上修改代码后,执行以下三条命令:
+cd D:\Personal\Desktop\suying-github
+git add .
+git commit -m "改了什么"
+git push
