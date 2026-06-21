@@ -15,7 +15,7 @@ def patch():
         'douyin_logger.success(_msg("\U0001f973", "\u89c6\u9891\u5df2\u7ecf\u4f20\u5b8c\u5566"))\n                    await asyncio.sleep(5)')
 
     # 2) 封面"完成"点击 + 日志 + wait_for(detached, 20s) 整块替换
-    #    云端弹窗关闭慢, 等10秒后如果还在就 JS 强制移除, 不再死等
+    #    云端弹窗关闭慢(60s), 30s时重试点击, 不用JS强删(会破坏页面状态)
     old = (
         'await cover_locator.get_by_role("button", name="\u5b8c\u6210", exact=True).first.click()\n'
         '        douyin_logger.info(_msg("\U0001f973", "\u89c6\u9891\u5c01\u9762\u8bbe\u7f6e\u5b8c\u6210"))\n'
@@ -24,11 +24,14 @@ def patch():
     new = (
         'await cover_locator.get_by_role("button", name="\u5b8c\u6210", exact=True).first.click()\n'
         '        try:\n'
-        '            await cover_locator.wait_for(state="detached", timeout=10000)\n'
+        '            await cover_locator.wait_for(state="detached", timeout=60000)\n'
         '        except Exception:\n'
-        '            douyin_logger.info(_msg("\U0001f9f0", "\u5c01\u9762\u5f39\u7a97\u8fd8\u6ca1\u5173, \u5c0f\u4eba\u7528\u6cd5\u672f\u5f3a\u884c\u5173\u95ed"))\n'
-        '            await page.evaluate("() => document.querySelectorAll(\'.dy-creator-content-modal\').forEach(e => e.remove())")\n'
-        '            await asyncio.sleep(1)\n'
+        '            douyin_logger.info(_msg("\U0001f9f0", "\u5c01\u9762\u5f39\u7a97\u8fd8\u6ca1\u5173, \u518d\u70b9\u4e00\u6b21"))\n'
+        '            try:\n'
+        '                await cover_locator.get_by_role("button", name="\u5b8c\u6210", exact=True).first.click(force=True)\n'
+        '                await cover_locator.wait_for(state="detached", timeout=60000)\n'
+        '            except Exception:\n'
+        '                douyin_logger.warning(_msg("\u26a0\ufe0f", "\u5c01\u9762\u5f39\u7a97\u5173\u4e0d\u4e86, \u8df3\u8fc7\u5c01\u9762\u7ee7\u7eed\u53d1\u5e03"))\n'
         '        douyin_logger.info(_msg("\U0001f973", "\u89c6\u9891\u5c01\u9762\u8bbe\u7f6e\u5b8c\u6210"))'
     )
     code = code.replace(old, new)
