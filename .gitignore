@@ -20,5 +20,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# social-auto-upload (workflow 中 clone, 不提交)
+# social-auto-upload (clone, 不提交)
 social-auto-upload/
+配置/social-auto-upload/

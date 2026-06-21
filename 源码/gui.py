@@ -1159,6 +1159,8 @@ class App:
     def _run_single_step(self, step):
         """Debug mode: execute single step (supports step skipping, auto-checks prerequisites)"""
         try:
+            if self.stop_flag.is_set():
+                raise InterruptedError()
             # Skip-step prerequisite data check
             if step == 2 and not self.raw_narration:
                 self.log('步骤2需要原始文案, 请先运行步骤1提取, 或在Tab2直接粘贴文案后跳到步骤3')
@@ -1180,6 +1182,8 @@ class App:
                 self._step7_do_publish()
                 return
 
+            if self.stop_flag.is_set():
+                raise InterruptedError()
             if step == 1:
                 url = self.url_var.get().strip()
                 if not url:
@@ -1197,6 +1201,9 @@ class App:
             elif step == 6:
                 self._step6_render()
             self.log_q.put(('debug_step', step))
+        except InterruptedError:
+            self.log('用户取消了流水线')
+            self.set_status('已取消')
         except Exception as e:
             self.log(f'错误: {e}')
             import traceback; self.log(traceback.format_exc())
