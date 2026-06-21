@@ -13,10 +13,10 @@ NW = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' e
 
 # ============ Path Config ============
 BASE = Path(__file__).resolve().parent.parent
-SRC_DIR = BASE / 'src'
-CFG_DIR = BASE / 'config'
-OUT_DIR = BASE / 'outputs'
-CACHE   = BASE / 'cache'
+SRC_DIR = BASE / '源码'
+CFG_DIR = BASE / '配置'
+OUT_DIR = BASE / '作品'
+CACHE   = BASE / '缓存'
 for e in [OUT_DIR, CACHE]:
     e.mkdir(parents=True, exist_ok=True)
 
@@ -221,7 +221,7 @@ class Pipeline:
             title, narration = tm.group(1).strip(), bm.group(1).strip()
             log('  已有格式标记, 跳过改写')
         else:
-            tpl = (CFG_DIR / 'ai_rewrite_prompt.txt').read_text(encoding='utf-8-sig')
+            tpl = (CFG_DIR / 'ai生故事模板.txt').read_text(encoding='utf-8-sig')
             learn_ctx = get_learning_prompt()
             custom_instr = self.config.get('rewrite_custom_instruction', '').strip()
             prompt = tpl.rstrip()

@@ -106,7 +106,7 @@ jobs:
         if: steps.poll.outputs.has_work == 'true'
         uses: actions/cache@v4
         with:
-          path: cache/hf_models
+          path: 缓存/hf_models
           key: whisper-model-small-v3
           restore-keys: whisper-model-small-
 
@@ -135,8 +135,8 @@ jobs:
       - name: Write Douyin cookies
         if: steps.poll.outputs.has_work == 'true'
         run: |
-          mkdir -p config/cookies
-          echo '${{ secrets.DOUYIN_COOKIES_JSON }}' > config/cookies/douyin_creator.json
+          mkdir -p 配置/cookies
+          echo '${{ secrets.DOUYIN_COOKIES_JSON }}' > 配置/cookies/douyin_creator.json
 
       - name: Process videos
         if: steps.poll.outputs.has_work == 'true'
@@ -144,12 +144,12 @@ jobs:
           FFMPEG_PATH: /usr/bin/ffmpeg
           SAU_DIR: ${{ github.workspace }}/social-auto-upload
         run: |
-          python src/cli_pipeline.py --poll
+          python 源码/cli_pipeline.py --poll
 
       - name: Upload artifacts
         if: steps.poll.outputs.has_work == 'true' && always()
         uses: actions/upload-artifact@v4
         with:
           name: suying-outputs-${{ github.run_number }}
-          path: outputs/
+          path: 作品/
           retention-days: 7

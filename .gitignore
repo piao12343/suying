@@ -1,13 +1,13 @@
 # 产出和缓存
-outputs/
-cache/
+作品/
+缓存/
 *.mp4
 *.mp3
 *.wav
 
 # 密钥文件
-config/cookies/
-config/config.json
+配置/cookies/
+配置/config.json
 
 # Python
 __pycache__/
