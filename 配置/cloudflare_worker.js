@@ -63,11 +63,23 @@ export default {
         return jsonResponse({ error: '密码错误' }, 403);
       }
 
+      // 轮询间隔控制: 从 KV 读取 last_poll_time, 未到间隔则跳过
+      const pollInterval = parseInt(url.searchParams.get('poll_interval') || '1', 10);
+      const now = Date.now();
+      const lastPollRaw = await env.LINKS.get('last_poll_time');
+      if (lastPollRaw) {
+        const elapsed = (now - parseInt(lastPollRaw, 10)) / 1000 / 60;
+        if (elapsed < pollInterval) {
+          return jsonResponse({ links: [], skip: true, message: `间隔未到, 剩余${Math.ceil(pollInterval - elapsed)}分钟` });
+        }
+      }
+
       const pendingRaw = await env.LINKS.get('pending');
       const pending = pendingRaw ? JSON.parse(pendingRaw) : [];
 
-      // 取走全部, 清空队列
+      // 取走全部, 清空队列, 记录轮询时间
       await env.LINKS.put('pending', '[]');
+      await env.LINKS.put('last_poll_time', now.toString());
 
       return jsonResponse({ links: pending });
     }

@@ -64,6 +64,18 @@ def build_config():
             else:
                 config[config_key] = val
 
+    # Cloud-specific overrides (from cloud_settings.json, only applies in GitHub Actions)
+    cloud_settings_path = CFG_DIR / 'cloud_settings.json'
+    if cloud_settings_path.exists():
+        try:
+            cloud_cfg = json.loads(cloud_settings_path.read_text(encoding='utf-8'))
+            for key in ('auto_publish_douyin', 'publish_interval_minutes', 'poll_interval_minutes'):
+                if key in cloud_cfg:
+                    config[key] = cloud_cfg[key]
+            log('已加载云端配置: cloud_settings.json')
+        except Exception as e:
+            log(f'云端配置加载失败: {e}')
+
     # ffmpeg path: env var > system PATH
     config['ffmpeg_path'] = os.environ.get('FFMPEG_PATH', config.get('ffmpeg_path', 'ffmpeg'))
 
@@ -679,7 +691,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # ============ Cloudflare Polling ============
 def poll_cloudflare(config):
-    """Poll Cloudflare Worker for pending links."""
+    """Poll Cloudflare Worker for pending links.
+    Passes poll_interval to worker so it enforces minimum interval via KV timestamp.
+    """
     import requests as req
     url = config.get('listener_worker_url', '').rstrip('/')
     secret = config.get('listener_secret', '')
@@ -687,13 +701,17 @@ def poll_cloudflare(config):
         log('ERROR: listener_worker_url 或 listener_secret 未配置')
         return []
     try:
+        interval = config.get('poll_interval_minutes', 1)
         resp = req.get(
             f'{url}/api/poll',
-            params={'secret': secret},
+            params={'secret': secret, 'poll_interval': interval},
             timeout=15
         )
         if resp.status_code == 200:
             data = resp.json()
+            if data.get('skip'):
+                log(f'轮询间隔未到, 跳过 (每{interval}分钟轮询一次)')
+                return []
             links = [item['link'] for item in data.get('links', []) if item.get('link')]
             return links
         else:
