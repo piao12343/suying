@@ -730,8 +730,19 @@ def main():
     config = build_config()
 
     if '--poll' in sys.argv:
-        # Poll mode: get pending links from Cloudflare Worker
-        links = poll_cloudflare(config)
+        # Poll mode: get pending links
+        # Priority 1: env var from GitHub Actions workflow (already polled)
+        # Priority 2: poll Cloudflare Worker directly (local/standalone mode)
+        pending_json = os.environ.get('SUYING_PENDING_LINKS', '')
+        if pending_json:
+            try:
+                links = json.loads(pending_json)
+                log(f'从环境变量获取 {len(links)} 条链接 (workflow已轮询)')
+            except Exception as e:
+                log(f'环境变量解析失败: {e}')
+                links = []
+        else:
+            links = poll_cloudflare(config)
         if not links:
             log('无待处理链接, 退出')
             sys.exit(0)

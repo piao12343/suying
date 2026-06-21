@@ -144,6 +144,7 @@ jobs:
         env:
           FFMPEG_PATH: /usr/bin/ffmpeg
           SAU_DIR: ${{ github.workspace }}/配置/social-auto-upload
+          SUYING_PENDING_LINKS: ${{ steps.poll.outputs.links }}
         run: |
           python 源码/cli_pipeline.py --poll
 

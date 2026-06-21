@@ -1,0 +1,8 @@
+name = "suying"
+main = "cloudflare_worker.js"
+compatibility_date = "2024-01-01"
+account_id = "ceb1f7b1e844d8e45e6595bf5126d57a"
+
+[[kv_namespaces]]
+binding = "LINKS"
+id = "9b74bc087f58473099c529fa56456fed"

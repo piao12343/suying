@@ -351,7 +351,7 @@ class App:
         ttk.Button(login_row, text='扫码登录', command=self._login_douyin_dialog).pack(
             side='left', padx=(12, 4))
         ttk.Button(login_row, text='刷新状态', command=self._check_douyin_status).pack(
-            side='left')
+            side='left', padx=(4, 0))
 
         # Publish form
         form = ttk.Frame(parent)
