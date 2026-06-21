@@ -1,0 +1,89 @@
+name: publish-only
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Artifact run ID (留空用最新成功运行)'
+        required: false
+        type: string
+      title:
+        description: '视频标题'
+        required: true
+        type: string
+      desc:
+        description: '话题描述'
+        required: false
+        type: string
+        default: ''
+
+env:
+  SUYING_OPENROUTER_API_KEY: ${{ secrets.SUYING_OPENROUTER_API_KEY }}
+  SUYING_PEXELS_API_KEY: ${{ secrets.SUYING_PEXELS_API_KEY }}
+  SUYING_LISTENER_SECRET: ${{ secrets.SUYING_LISTENER_SECRET }}
+  SUYING_LISTENER_WORKER_URL: ${{ secrets.SUYING_LISTENER_WORKER_URL }}
+  SUYING_PUSHPLUS_TOKEN: ${{ secrets.SUYING_PUSHPLUS_TOKEN }}
+  SUYING_TTS_VOICE: ${{ secrets.SUYING_TTS_VOICE }}
+  SUYING_TTS_RATE: ${{ secrets.SUYING_TTS_RATE }}
+  SUYING_OPENROUTER_MODEL: ${{ secrets.SUYING_OPENROUTER_MODEL }}
+  SUYING_PUB_DESC: ${{ secrets.SUYING_PUB_DESC }}
+  SUYING_AUTO_PUBLISH: ${{ secrets.SUYING_AUTO_PUBLISH }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_ID='${{ github.event.inputs.run_id }}'
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID=$(gh run list --repo ${{ github.repository }} --workflow=suying.yml --status=completed --json databaseId --jq '.[0].databaseId')
+          fi
+          echo "Downloading artifact from run $RUN_ID"
+          gh run download "$RUN_ID" --repo ${{ github.repository }} --dir 作品/
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - name: Clone social-auto-upload
+        run: |
+          git clone --depth 1 https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
+          cd 配置/social-auto-upload
+          cp conf.example.py conf.py
+          pip install -r requirements.txt
+          pip install patchright
+          python -m patchright install chromium
+          echo "SAU_DIR=${{ github.workspace }}/配置/social-auto-upload" >> $GITHUB_ENV
+
+      - name: Write Douyin cookies
+        run: |
+          mkdir -p 配置/cookies
+          echo '${{ secrets.DOUYIN_COOKIES_JSON }}' > 配置/cookies/douyin_creator.json
+
+      - name: Publish to Douyin
+        env:
+          SAU_DIR: ${{ github.workspace }}/配置/social-auto-upload
+        run: |
+          # Find the video directory (contains the 成品.mp4)
+          VIDEO_DIR=$(find 作品/ -name "*--成品.mp4" -exec dirname {} \; | head -1)
+          if [ -z "$VIDEO_DIR" ]; then
+            echo "ERROR: No video found in artifacts"
+            exit 1
+          fi
+          echo "Video dir: $VIDEO_DIR"
+          ls -la "$VIDEO_DIR"
+          python 源码/publish_only.py "$VIDEO_DIR" '${{ github.event.inputs.title }}' '${{ github.event.inputs.desc }}'
