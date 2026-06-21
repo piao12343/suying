@@ -33,22 +33,26 @@ DOUYIN_COOKIE_FILE = COOKIE_DIR / 'douyin_creator.json'
 
 
 def check_douyin_login():
-    """Check Douyin login status (sync wrapper)
+    """Check Douyin login status — lightweight file check (no browser launch)
+    Only verifies cookie file exists and is valid JSON with cookie data.
+    Real cookie validity is verified at publish time.
+
     Returns:
-        bool: True if logged in, False otherwise
+        bool: True if cookie file exists and looks valid, False otherwise
     """
     try:
-        from uploader.douyin_uploader.main import douyin_setup
-
-        async def _check():
-            result = await douyin_setup(str(DOUYIN_COOKIE_FILE), handle=False)
-            return result
-
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(_check())
-        finally:
-            loop.close()
+        if not DOUYIN_COOKIE_FILE.exists():
+            return False
+        if DOUYIN_COOKIE_FILE.stat().st_size < 50:
+            return False
+        with open(DOUYIN_COOKIE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            cookies = data.get('cookies', [])
+            return isinstance(cookies, list) and len(cookies) > 0
+        if isinstance(data, list):
+            return len(data) > 0
+        return False
     except Exception as e:
         print(f'[发布模块] 检查登录状态失败: {e}')
         return False
@@ -56,6 +60,8 @@ def check_douyin_login():
 
 def login_douyin(qrcode_callback=None):
     """Execute Douyin login flow (sync wrapper)
+
+    Bypasses cookie_auth() browser check for faster entry to login page.
 
     Args:
         qrcode_callback: QR code callback, receives dict: {'image_path': str, 'image_data_url': str}
@@ -65,8 +71,18 @@ def login_douyin(qrcode_callback=None):
     """
     try:
         from uploader.douyin_uploader.main import douyin_setup
+        from uploader.douyin_uploader.main import douyin_cookie_gen
 
         async def _login():
+            # If cookie doesn't exist, go straight to login (skip cookie_auth browser popup)
+            if not DOUYIN_COOKIE_FILE.exists():
+                result = await douyin_cookie_gen(
+                    str(DOUYIN_COOKIE_FILE),
+                    qrcode_callback=qrcode_callback,
+                    headless=False,  # Login requires visible browser for QR scan
+                )
+                return result
+            # Cookie exists, use normal flow (may briefly validate with browser)
             result = await douyin_setup(
                 str(DOUYIN_COOKIE_FILE),
                 handle=True,

@@ -1905,13 +1905,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 self.set_status('抖音登录中...')
 
                 def qrcode_callback(qr_info):
-                    self.log(f'二维码已生成: {qr_info["image_path"]}')
-                    self.log('请用抖音 APP 扫描二维码')
-                    try:
-                        if sys.platform == 'win32':
-                            os.startfile(qr_info['image_path'])
-                    except Exception:
-                        pass
+                    # Browser already shows QR code, no need to open saved image
+                    pass
 
                 result = login_douyin(qrcode_callback=qrcode_callback)
 
