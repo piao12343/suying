@@ -131,8 +131,7 @@ jobs:
           git clone --depth 1 https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
           cd 配置/social-auto-upload
           cp conf.example.py conf.py
-          # 云端服务器到抖音较慢, 把封面弹窗关闭等待时间从20秒加大到120秒
-          sed -i 's/cover_locator.wait_for(state="detached", timeout=20000)/cover_locator.wait_for(state="detached", timeout=120000)/' uploader/douyin_uploader/main.py
+          python "${{ github.workspace }}/源码/cloud_patch_sau.py"
           pip install -r requirements.txt
           pip install patchright opencv-python-headless segno
           python -m patchright install chromium
