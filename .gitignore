@@ -8,6 +8,7 @@
 # 密钥文件
 配置/cookies/
 配置/config.json
+配置/账户信息.md
 
 # Python
 __pycache__/
