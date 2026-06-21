@@ -1,5 +1,5 @@
 {
-    "poll_interval_minutes": 5,
+    "poll_interval_minutes": 1,
     "auto_publish_douyin": true,
     "publish_interval_minutes": 120
 }
