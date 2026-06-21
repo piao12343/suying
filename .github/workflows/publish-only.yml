@@ -67,6 +67,7 @@ jobs:
           pip install -r requirements.txt
           pip install patchright opencv-python-headless segno
           python -m patchright install chromium
+          python -m patchright install-deps chromium
           echo "SAU_DIR=${{ github.workspace }}/配置/social-auto-upload" >> $GITHUB_ENV
 
       - name: Write Douyin cookies
