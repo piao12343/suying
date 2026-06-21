@@ -19,7 +19,7 @@ if sys.stderr is None:
     sys.stderr = io.StringIO()
 
 # social-auto-upload path: env var > repo sibling dir
-SAU_DIR = Path(os.environ.get('SAU_DIR', str(Path(__file__).resolve().parent.parent / 'social-auto-upload')))
+SAU_DIR = Path(os.environ.get('SAU_DIR', str(Path(__file__).resolve().parent.parent / '配置' / 'social-auto-upload')))
 if str(SAU_DIR) not in sys.path:
     sys.path.insert(0, str(SAU_DIR))
 
@@ -27,7 +27,7 @@ if str(SAU_DIR) not in sys.path:
 (SAU_DIR / 'logs').mkdir(parents=True, exist_ok=True)
 
 # Cookie storage dir
-COOKIE_DIR = Path(__file__).resolve().parent.parent / 'config' / 'cookies'
+COOKIE_DIR = Path(__file__).resolve().parent.parent / '配置' / 'cookies'
 COOKIE_DIR.mkdir(parents=True, exist_ok=True)
 DOUYIN_COOKIE_FILE = COOKIE_DIR / 'douyin_creator.json'
 

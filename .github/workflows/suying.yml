@@ -127,10 +127,10 @@ jobs:
       - name: Clone social-auto-upload
         if: steps.poll.outputs.has_work == 'true'
         run: |
-          git clone --depth 1 https://github.com/dreammis/social-auto-upload.git
-          cd social-auto-upload
+          git clone --depth 1 https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
+          cd 配置/social-auto-upload
           pip install -r requirements.txt
-          echo "SAU_DIR=${{ github.workspace }}/social-auto-upload" >> $GITHUB_ENV
+          echo "SAU_DIR=${{ github.workspace }}/配置/social-auto-upload" >> $GITHUB_ENV
 
       - name: Write Douyin cookies
         if: steps.poll.outputs.has_work == 'true'
