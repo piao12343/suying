@@ -65,7 +65,7 @@ jobs:
           cd 配置/social-auto-upload
           cp conf.example.py conf.py
           pip install -r requirements.txt
-          pip install patchright opencv-python-headless
+          pip install patchright opencv-python-headless segno
           python -m patchright install chromium
           echo "SAU_DIR=${{ github.workspace }}/配置/social-auto-upload" >> $GITHUB_ENV
 
