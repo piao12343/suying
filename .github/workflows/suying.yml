@@ -99,7 +99,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          key: pip-${{ runner.os }}-${{ hashFiles('配置/requirements.txt') }}
           restore-keys: pip-${{ runner.os }}-
 
       - name: Cache faster-whisper model
@@ -120,7 +120,7 @@ jobs:
       - name: Install Python dependencies
         if: steps.poll.outputs.has_work == 'true'
         run: |
-          pip install -r requirements.txt
+          pip install -r 配置/requirements.txt
           python -m playwright install chromium
           python -m playwright install-deps chromium
 

@@ -1,6 +1,6 @@
 """
 Douyin Cookie refresh tool
-Usage: python tools/refresh_cookies.py
+Usage: python 源码/tools/refresh_cookies.py
 """
 
 import sys
@@ -36,7 +36,7 @@ def main():
 
     import asyncio
 
-    cookie_file = str(Path(__file__).resolve().parent.parent / 'config' / 'cookies' / 'douyin_creator.json')
+    cookie_file = str(Path(__file__).resolve().parent.parent.parent / '配置' / 'cookies' / 'douyin_creator.json')
 
     async def _login():
         result = await douyin_setup(
