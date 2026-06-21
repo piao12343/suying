@@ -93,7 +93,7 @@ jobs:
         if: steps.poll.outputs.has_work == 'true'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fonts-noto-cjk
+          sudo apt-get install -y -qq ffmpeg fonts-noto-cjk xvfb
 
       - name: Cache pip packages
         if: steps.poll.outputs.has_work == 'true'
@@ -150,7 +150,8 @@ jobs:
           SAU_DIR: ${{ github.workspace }}/配置/social-auto-upload
           SUYING_PENDING_LINKS: ${{ steps.poll.outputs.links }}
         run: |
-          python 源码/cli_pipeline.py --poll
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" \
+            python 源码/cli_pipeline.py --poll
 
       - name: Upload artifacts
         if: steps.poll.outputs.has_work == 'true' && always()

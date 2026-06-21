@@ -57,7 +57,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
+          sudo apt-get install -y -qq ffmpeg xvfb
 
       - name: Clone social-auto-upload
         run: |
@@ -87,4 +87,5 @@ jobs:
           fi
           echo "Video dir: $VIDEO_DIR"
           ls -la "$VIDEO_DIR"
-          python 源码/publish_only.py "$VIDEO_DIR" '${{ github.event.inputs.title }}' '${{ github.event.inputs.desc }}'
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" \
+            python 源码/publish_only.py "$VIDEO_DIR" '${{ github.event.inputs.title }}' '${{ github.event.inputs.desc }}'
