@@ -1,13 +1,13 @@
-name: 速影 - Video Pipeline
+name: build
 
 on:
   schedule:
-    # 每60分钟轮询一次 Cloudflare Worker 获取待处理链接
-    - cron: '0 * * * *'
+    # Poll Cloudflare Worker every 15 min for pending links
+    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
       url:
-        description: '抖音视频链接 (留空则轮询 Cloudflare)'
+        description: 'Douyin video URL (leave empty to poll Cloudflare)'
         required: false
         type: string
 
@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      # ======== 阶段1: 轻量轮询 ========
+      # ======== Phase 1: lightweight poll ========
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -82,12 +82,12 @@ jobs:
                   f.write('has_work=false\n')
           "
 
-      # ======== 无任务时提前退出 ========
+      # ======== Early exit if no work ========
       - name: No pending links
         if: steps.poll.outputs.has_work != 'true'
         run: echo "No pending links found. Exiting early."
 
-      # ======== 阶段2: 完整流水线 (仅在有任务时执行) ========
+      # ======== Phase 2: full pipeline (only when work exists) ========
       - name: Install system dependencies
         if: steps.poll.outputs.has_work == 'true'
         run: |

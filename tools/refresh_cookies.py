@@ -1,27 +1,20 @@
 """
-速影 - 抖音 Cookie 刷新工具
-用法: python tools/refresh_cookies.py
-
-在本地电脑运行, 打开浏览器扫码登录抖音, 然后把生成的 cookie JSON
-复制到 GitHub Secrets 的 DOUYIN_COOKIES_JSON 中。
-
-前置条件:
-  pip install playwright
-  python -m playwright install chromium
+Douyin Cookie refresh tool
+Usage: python tools/refresh_cookies.py
 """
 
 import sys
 import json
 from pathlib import Path
 
-# social-auto-upload 路径 (本地使用时手动指定)
+# social-auto-upload path
 SAU_DIR = input('请输入 social-auto-upload 目录路径 (回车使用默认 D:\\Personal\\Desktop\\social-auto-upload): ').strip()
 if not SAU_DIR:
     SAU_DIR = r'D:\Personal\Desktop\social-auto-upload'
 
 sys.path.insert(0, SAU_DIR)
 
-# 确保日志目录存在
+# Ensure log dir exists
 (Path(SAU_DIR) / 'logs').mkdir(parents=True, exist_ok=True)
 
 
@@ -65,7 +58,7 @@ def main():
         print('登录成功! Cookie 已保存。')
         print()
 
-        # 读取 cookie 文件并输出, 方便复制到 GitHub Secrets
+        # Read cookie file for copying to GitHub Secrets
         cookie_path = Path(cookie_file)
         if cookie_path.exists():
             cookie_json = cookie_path.read_text(encoding='utf-8')

@@ -1,17 +1,17 @@
 """
-速影 - CLI Pipeline (GitHub Actions / headless server)
-用法: python cli_pipeline.py <抖音链接或文案文件>
-      python cli_pipeline.py --poll   (轮询 Cloudflare Worker 获取待处理链接)
+CLI Pipeline (GitHub Actions / headless server)
+Usage: python cli_pipeline.py <douyin_url_or_narration_file>
+       python cli_pipeline.py --poll   (poll Cloudflare Worker for pending links)
 """
 
 import os, sys, json, re, time, shutil, subprocess
 from pathlib import Path
 from datetime import datetime
 
-# 隐藏子进程控制台窗口
+# Hide subprocess console window
 NW = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
 
-# ============ 路径配置 ============
+# ============ Path Config ============
 BASE = Path(__file__).resolve().parent.parent
 SRC_DIR = BASE / 'src'
 CFG_DIR = BASE / 'config'
@@ -20,22 +20,22 @@ CACHE   = BASE / 'cache'
 for e in [OUT_DIR, CACHE]:
     e.mkdir(parents=True, exist_ok=True)
 
-# 确保 src/ 在 Python 路径中
+# Ensure src/ in Python path
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-# 缓存目录 (whisper 模型等)
+# Cache dir (whisper models etc)
 _CACHE_BASE = Path(os.environ.get('SUYING_CACHE_DIR', str(CACHE)))
 if not os.environ.get('HF_HOME'):
     os.environ['HF_HOME'] = str(_CACHE_BASE / 'hf_models')
     os.environ['HF_HUB_CACHE'] = str(_CACHE_BASE / 'hf_models' / 'hub')
 
 
-# ============ 配置加载 ============
+# ============ Config Loading ============
 def build_config():
     """
-    构建配置: 从 config_template.json 读默认值, 用 SUYING_* 环境变量覆盖密钥。
-    GitHub Secrets 注入的环境变量会覆盖模板中的空字符串。
+    Build config from config_template.json, override with SUYING_* env vars.
+    GitHub Secrets env vars override empty-string template defaults.
     """
     template_path = CFG_DIR / 'config_template.json'
     if template_path.exists():
@@ -43,7 +43,7 @@ def build_config():
     else:
         config = {}
 
-    # 环境变量 → 配置项映射
+    # Env var -> config mapping
     env_overrides = {
         'SUYING_OPENROUTER_API_KEY': 'openrouter_api_key',
         'SUYING_PEXELS_API_KEY': 'pexels_api_key',
@@ -64,25 +64,25 @@ def build_config():
             else:
                 config[config_key] = val
 
-    # ffmpeg 路径: 环境变量 > 系统 PATH
+    # ffmpeg path: env var > system PATH
     config['ffmpeg_path'] = os.environ.get('FFMPEG_PATH', config.get('ffmpeg_path', 'ffmpeg'))
 
     return config
 
 
-# ============ 日志 ============
+# ============ Logging ============
 def log(msg):
-    """带时间戳的日志, 适配 GitHub Actions 输出"""
+    """Timestamped logging"""
     ts = datetime.now().strftime('%H:%M:%S')
     print(f"[{ts}] {msg}", flush=True)
 
 
-# ============ 学习记录 ============
+# ============ Learning Records ============
 LEARN_PATH = CFG_DIR / 'learning_context.json'
 
 
 def load_learning():
-    """加载学习记录"""
+    """Load learning records"""
     try:
         if LEARN_PATH.exists():
             return json.loads(LEARN_PATH.read_text(encoding='utf-8'))
@@ -92,7 +92,7 @@ def load_learning():
 
 
 def get_learning_prompt():
-    """生成注入到AI提示词中的学习示例 (移植自 gui.py _get_learning_prompt)"""
+    """Build learning examples for AI prompt injection (from gui.py)"""
     data = load_learning()
     parts = []
 
@@ -113,9 +113,9 @@ def get_learning_prompt():
     return '\n'.join(parts) if parts else ''
 
 
-# ============ 平台字体适配 ============
+# ============ Platform Font Config ============
 def get_font_config():
-    """根据操作系统返回字体配置"""
+    """Return font config by OS"""
     import platform
     if platform.system() == 'Windows':
         return {
@@ -134,7 +134,7 @@ def get_font_config():
         }
 
 
-# ============ 流水线 ============
+# ============ Pipeline ============
 class Pipeline:
     def __init__(self, config):
         self.config = config
@@ -151,7 +151,7 @@ class Pipeline:
         self.cover_landscape_path = None
 
     def run(self, douyin_input):
-        """执行完整7步流水线, 返回是否成功"""
+        """Run full 7-step pipeline"""
         success = False
         try:
             self.step1_extract(douyin_input)
@@ -173,7 +173,7 @@ class Pipeline:
                 self._notify('速影 - 视频生成失败', f'视频《{self.title}》生成过程中出现错误')
         return success
 
-    # -------- 步骤1: 提取文案 --------
+    # -------- Step 1: Extract narration --------
     def step1_extract(self, douyin_input):
         from extract_narration import (extract_share_url, resolve_video_id,
             get_video_info, download_and_extract_audio, transcribe_audio)
@@ -200,14 +200,14 @@ class Pipeline:
                 if wav.exists():
                     os.remove(wav)
         else:
-            # 直接读取文案文件
+            # Read narration file directly
             raw = Path(douyin_input).read_text(encoding='utf-8').strip()
             log(f'  已加载文案: {len(raw)}字')
 
         log(f'  文案长度: {len(raw)} 字')
         self.raw_narration = raw
 
-    # -------- 步骤2: AI改写 --------
+    # -------- Step 2: AI rewrite --------
     def step2_rewrite(self):
         import requests as req
 
@@ -285,7 +285,7 @@ class Pipeline:
         (self.proc_dir / '01_rewritten_narration.txt').write_text(
             f'【标题】\n{title}\n\n【优化口播文案】\n{narration}', encoding='utf-8')
 
-    # -------- 步骤3: 分镜切分 --------
+    # -------- Step 3: Storyboard split --------
     def step3_split(self):
         from video_pipeline import split_narration
 
@@ -302,14 +302,14 @@ class Pipeline:
             (self.proc_dir / '02_storyboard.json').write_text(
                 json.dumps(segs, ensure_ascii=False, indent=2), encoding='utf-8')
 
-    # -------- 步骤4: 搜索配图 --------
+    # -------- Step 4: Search images --------
     def step4_search(self):
         from video_pipeline import search_and_download_images
 
         log('=' * 50)
         log('[步骤4/7] 搜索实拍配图...')
 
-        # 构建关键词学习上下文
+        # Build keyword learning context
         learn_data = load_learning()
         kw_corrections = learn_data.get('keyword_corrections', [])
         kw_ctx = ''
@@ -324,7 +324,7 @@ class Pipeline:
         self.images = imgs
         log(f'  成功: {len(imgs)}/{len(self.segments)} 张')
 
-    # -------- 步骤5: TTS合成 --------
+    # -------- Step 5: TTS synthesis --------
     def step5_tts(self):
         from video_pipeline import generate_tts
 
@@ -339,7 +339,7 @@ class Pipeline:
         log(f'  音频: {audio.name}')
         log(f'  词边界: {len(word_boundaries)} 个')
 
-    # -------- 步骤6: 视频渲染 --------
+    # -------- Step 6: Video render --------
     def step6_render(self):
         from video_pipeline import create_kenburns_clip
 
@@ -353,7 +353,7 @@ class Pipeline:
         dirs = ['zoom_in', 'zoom_out', 'pan_left', 'pan_right']
         tc = sum(len(s['text']) for s in self.segments)
 
-        # 字体配置 (适配 Linux/Windows)
+        # Font config (Linux/Windows compatible)
         fonts_dir = CACHE / 'ffmpeg_fonts'
         fonts_conf = fonts_dir / 'fonts.conf'
         if not fonts_conf.exists():
@@ -370,7 +370,7 @@ class Pipeline:
         render_dir = CACHE / 'render'
         render_dir.mkdir(parents=True, exist_ok=True)
 
-        # 6a: Ken Burns 动画片段
+        # 6a: Ken Burns clips
         log('  [6a] Ken Burns动画片段...')
         cdir = self.proc_dir / 'clips'
         cdir.mkdir(exist_ok=True)
@@ -393,7 +393,7 @@ class Pipeline:
         if not cfs:
             raise RuntimeError('没有成功创建任何视频片段!')
 
-        # 6b: 拼接片段
+        # 6b: Concat clips
         log('  [6b] 拼接片段...')
         cl = self.proc_dir / 'concat_list.txt'
         cl.write_text(''.join(f"file '{c}'\n" for c in cfs), encoding='utf-8')
@@ -402,7 +402,7 @@ class Pipeline:
             '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p', str(cat)],
             capture_output=True, timeout=300, **NW)
 
-        # 6c: 叠加TTS音频
+        # 6c: Overlay TTS audio
         log('  [6c] 叠加TTS音频...')
         wa = self.proc_dir / 'video_with_audio.mp4'
         subprocess.run([ffmpeg, '-y', '-i', str(cat), '-i', str(self.audio_path),
@@ -415,7 +415,7 @@ class Pipeline:
         dm = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.?\d*)', pr.stderr)
         tdur = int(dm.group(1))*3600 + int(dm.group(2))*60 + float(dm.group(3)) if dm else 319
 
-        # 6d: 渲染标题封面
+        # 6d: Render title cover
         log('  [6d] 渲染标题封面...')
         ss = render_dir / 'source.mp4'
         shutil.copy2(str(wa), str(ss))
@@ -433,7 +433,7 @@ class Pipeline:
             log('    标题渲染失败, 跳过')
             to = ss
 
-        # 6e: 生成智能字幕
+        # 6e: Generate subtitles
         log('  [6e] 生成智能字幕...')
         af = render_dir / 'final_sub.ass'
 
@@ -468,7 +468,7 @@ class Pipeline:
         for s in self.segments:
             alls.extend(ssp(s['text']))
 
-        # 优先使用 Edge TTS 词边界做精准字幕对齐
+        # Prefer Edge TTS word boundaries for precise subtitle alignment
         wb = self.word_boundaries
         if wb and alls:
             log('    使用词边界精准对齐字幕')
@@ -486,7 +486,7 @@ class Pipeline:
                         sub_idx += 1
                         acc_text = ''
                         cur_start = b['end']
-            # 兜底: 未匹配的行用等间距填充剩余时间
+            # Fallback: equal-spacing for unmatched lines
             if sub_idx < len(alls):
                 remaining = alls[sub_idx:]
                 last_end = wb[-1]['end'] if wb else tdur
@@ -497,7 +497,7 @@ class Pipeline:
                     e_t = min(s_t + per, tdur)
                     evts.append(f"Dialogue: 0,{ft(s_t)},{ft(e_t)},Default,,0,0,0,,{l}")
         else:
-            # 兜底: 字符比例估算
+            # Fallback: char ratio estimate
             log('    无词边界数据, 使用字符比例估算')
             tsc = sum(len(l) for l in alls) if alls else 1
             cur = 1.0
@@ -523,7 +523,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """ + '\n'.join(evts), encoding='utf-8-sig')
         log(f'    字幕: {len(evts)}条')
 
-        # 6f: 渲染字幕
+        # 6f: Burn subtitles
         log('  [6f] 渲染字幕...')
         fo = render_dir / 'final.mp4'
         r2 = subprocess.run([ffmpeg, '-y', '-i', str(to), '-vf', f"ass='{ae}'",
@@ -533,7 +533,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             log('    字幕渲染失败, 使用标题版本')
             fo = to
 
-        # 6g: 混入背景音乐
+        # 6g: Mix BGM
         bgm_enabled = self.config.get('bgm_enabled', False)
         bgm_dir = CFG_DIR / 'bgm'
         if bgm_enabled and bgm_dir.is_dir():
@@ -583,7 +583,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         log(f' 大小: {mb:.1f} MB')
         log('#' * 50)
 
-        # 截取封面
+        # Extract covers
         self.cover_portrait_path = None
         self.cover_landscape_path = None
         try:
@@ -607,7 +607,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         except Exception as e:
             log(f'  封面截取失败(不影响发布): {e}')
 
-    # -------- 步骤7: 发布抖音 --------
+    # -------- Step 7: Publish to Douyin --------
     def step7_publish(self):
         if not self.config.get('auto_publish_douyin', False):
             log('自动发布未启用, 跳过')
@@ -661,9 +661,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         else:
             log(f'  发布失败: {result["message"]}')
 
-    # -------- 通知 --------
+    # -------- Notify --------
     def _notify(self, title, content):
-        """通过 PushPlus 发送微信通知"""
+        """Send WeChat notification via PushPlus"""
         try:
             import requests as req
             token = self.config.get('pushplus_token', '').strip()
@@ -677,12 +677,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             pass
 
 
-# ============ Cloudflare 轮询 ============
+# ============ Cloudflare Polling ============
 def poll_cloudflare(config):
-    """
-    轮询 Cloudflare Worker 获取待处理链接。
-    修复 bug: 使用 /api/poll (原 gui.py 用的是 /api)
-    """
+    """Poll Cloudflare Worker for pending links."""
     import requests as req
     url = config.get('listener_worker_url', '').rstrip('/')
     secret = config.get('listener_secret', '')
@@ -706,7 +703,7 @@ def poll_cloudflare(config):
     return []
 
 
-# ============ 主入口 ============
+# ============ Main Entry ============
 def main():
     log('=' * 60)
     log(' 速影 - CLI Pipeline')
@@ -715,14 +712,14 @@ def main():
     config = build_config()
 
     if '--poll' in sys.argv:
-        # 轮询模式: 从 Cloudflare Worker 获取待处理链接
+        # Poll mode: get pending links from Cloudflare Worker
         links = poll_cloudflare(config)
         if not links:
             log('无待处理链接, 退出')
             sys.exit(0)
         log(f'获取到 {len(links)} 条待处理链接')
 
-        # 发布间隔控制
+        # Publish interval control
         interval_min = config.get('publish_interval_minutes', 120)
 
         pipeline = Pipeline(config)
@@ -734,12 +731,12 @@ def main():
             log(f'\n{"="*60}')
             log(f'处理第 {i+1}/{len(links)} 条: {link}')
             pipeline.run(link)
-            # 每条链接处理完后重置 pipeline 状态
+            # Reset pipeline state after each link
             if i < len(links) - 1:
                 pipeline = Pipeline(config)
 
     elif len(sys.argv) >= 2:
-        # 单条处理模式
+        # Single item mode
         pipeline = Pipeline(config)
         success = pipeline.run(sys.argv[1])
         sys.exit(0 if success else 1)

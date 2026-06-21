@@ -1,7 +1,6 @@
 """
-抖音视频文案提取工具
-用法: python extract_narration.py "抖音分享链接"
-功能: 粘贴抖音分享链接 → 自动下载视频 → 提取音频 → 语音识别 → 输出口播文案
+Douyin narration extraction tool
+Usage: python extract_narration.py "douyin_share_link"
 """
 
 import sys
@@ -14,26 +13,26 @@ import tempfile
 import urllib3
 from pathlib import Path
 
-# 隐藏子进程控制台窗口
+# Hide subprocess console window
 NW = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
 
-# 关闭SSL警告（抖音短链接SSL握手有时不稳定）
+# Suppress SSL warnings (Douyin short links have unstable SSL)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ============ 配置 ============
+# ============ Config ============
 _BASE = Path(__file__).resolve().parent.parent
 
-# ffmpeg 路径: 优先环境变量, 回退到系统 PATH
+# ffmpeg path: env var > system PATH
 FFMPEG_PATH = os.environ.get('FFMPEG_PATH', 'ffmpeg')
 
-WHISPER_MODEL = "small"  # small模型对中文效果好，首次运行会自动下载(~500MB)
+WHISPER_MODEL = "small"  # small model works well for Chinese, auto-downloads on first run (~500MB)
 
-# 缓存目录: 优先环境变量, 回退到仓库根目录下 cache/
+# Cache dir: env var > repo cache/
 _CACHE_BASE = Path(os.environ.get('SUYING_CACHE_DIR', str(_BASE / 'cache')))
 WORK_DIR = _CACHE_BASE
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 
-# 模型缓存(首次运行自动下载)
+# Model cache (auto-downloads on first run)
 if not os.environ.get("HF_HOME"):
     os.environ["HF_HOME"] = str(_CACHE_BASE / 'hf_models')
     os.environ["HF_HUB_CACHE"] = str(_CACHE_BASE / 'hf_models' / 'hub')
@@ -47,7 +46,7 @@ HEADERS = {
 
 
 def extract_share_url(text):
-    """从分享文本中提取抖音链接"""
+    """Extract Douyin URL from share text"""
     patterns = [
         r'https?://v\.douyin\.com/[A-Za-z0-9\-_]+/?',
         r'https?://www\.douyin\.com/video/\d+',
@@ -57,7 +56,7 @@ def extract_share_url(text):
         m = re.search(p, text)
         if m:
             return m.group(0)
-    # 尝试提取任何 http 链接
+    # Try extracting any HTTP link
     m = re.search(r'https?://\S+', text)
     if m:
         return m.group(0).rstrip('/')
@@ -65,15 +64,15 @@ def extract_share_url(text):
 
 
 def resolve_video_id(share_url):
-    """解析短链接获取视频ID"""
+    """Resolve short link to get video ID"""
     print(f"[1/4] 解析抖音链接...")
     resp = requests.get(share_url, headers=HEADERS, allow_redirects=True, timeout=30, verify=False)
     final_url = resp.url
-    # 从URL中提取视频ID
+    # Extract video ID from URL
     vid_match = re.search(r'/video/(\d+)', final_url)
     if vid_match:
         return vid_match.group(1)
-    # 尝试从URL路径末尾提取
+    # Try extracting from URL path end
     vid = final_url.split('?')[0].strip('/').split('/')[-1]
     if vid.isdigit():
         return vid
@@ -81,7 +80,7 @@ def resolve_video_id(share_url):
 
 
 def get_video_info(video_id):
-    """获取视频信息（标题、描述、无水印地址）"""
+    """Get video info (title, desc, watermark-free URL)"""
     print(f"[2/4] 获取视频信息 (ID: {video_id})...")
     url = f'https://www.iesdouyin.com/share/video/{video_id}'
     resp = requests.get(url, headers=HEADERS, timeout=30, verify=False)
@@ -105,7 +104,7 @@ def get_video_info(video_id):
     desc = item.get('desc', '')
     nickname = item.get('author', {}).get('nickname', '未知')
 
-    # 获取无水印视频地址
+    # Get watermark-free video URL
     play_addr = item.get('video', {}).get('play_addr', {})
     url_list = play_addr.get('url_list', [])
     video_url = url_list[0].replace('playwm', 'play') if url_list else None
@@ -119,18 +118,18 @@ def get_video_info(video_id):
 
 
 def download_and_extract_audio(video_url, output_path):
-    """下载视频并提取音频"""
+    """Download video and extract audio"""
     print(f"[3/4] 下载视频并提取音频...")
-    # 直接用 ffmpeg 下载并提取音频，一步到位
+    # Use ffmpeg to download and extract audio in one step
     cmd = [
         FFMPEG_PATH,
         '-y',
         '-headers', f'User-Agent: {HEADERS["User-Agent"]}\r\nReferer: {HEADERS["Referer"]}\r\n',
         '-i', video_url,
-        '-vn',           # 不要视频
-        '-acodec', 'pcm_s16le',  # WAV格式，faster-whisper识别效果更好
-        '-ar', '16000',  # 16kHz采样率，Whisper标准
-        '-ac', '1',      # 单声道
+        '-vn',           # no video
+        '-acodec', 'pcm_s16le',  # WAV format, better for whisper
+        '-ar', '16000',  # 16kHz, Whisper standard
+        '-ac', '1',      # mono
         str(output_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, **NW)
@@ -141,17 +140,17 @@ def download_and_extract_audio(video_url, output_path):
 
 
 def transcribe_audio(audio_path):
-    """使用 faster-whisper 进行语音识别"""
+    """Speech recognition via faster-whisper"""
     print(f"[4/4] 语音识别中（首次运行需下载模型，请耐心等待）...")
     from faster_whisper import WhisperModel
 
-    # small 模型对中文效果好，CPU也能跑
+    # small model works well for Chinese, runs on CPU too
     model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
     segments, info = model.transcribe(
         str(audio_path),
         language="zh",
         beam_size=5,
-        vad_filter=True,  # 过滤静音片段，提高准确度
+        vad_filter=True,  # filter silence segments for accuracy
     )
 
     print(f"   检测到语言: {info.language} (概率: {info.language_probability:.2f})")
@@ -162,7 +161,7 @@ def transcribe_audio(audio_path):
         text = segment.text.strip()
         if text:
             full_text.append(text)
-            # 实时显示进度
+            # Show real-time progress
             progress = segment.end / info.duration * 100
             print(f"   [{progress:5.1f}%] {text}")
 
@@ -179,13 +178,13 @@ def main():
     share_url = extract_share_url(input_text)
     print(f"链接: {share_url}")
 
-    # 1. 解析视频ID
+    # 1. Resolve video ID
     video_id = resolve_video_id(share_url)
     if not video_id:
         print("错误: 无法从链接中解析视频ID")
         sys.exit(1)
 
-    # 2. 获取视频信息
+    # 2. Get video info
     info = get_video_info(video_id)
     print(f"   作者: {info['author']}")
     print(f"   描述: {info['desc'][:100]}...")
@@ -193,7 +192,7 @@ def main():
         print("错误: 无法获取视频下载地址")
         sys.exit(1)
 
-    # 3. 下载并提取音频
+    # 3. Download and extract audio
     audio_path = WORK_DIR / f"audio_{video_id}.wav"
     try:
         download_and_extract_audio(info['video_url'], audio_path)
@@ -201,14 +200,14 @@ def main():
         print(f"下载失败: {e}")
         sys.exit(1)
 
-    # 4. 语音识别
+    # 4. Speech recognition
     try:
         narration = transcribe_audio(audio_path)
     except Exception as e:
         print(f"语音识别失败: {e}")
         sys.exit(1)
 
-    # 5. 输出结果
+    # 5. Output results
     output_file = WORK_DIR / f"narration_{video_id}.txt"
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(f"标题: {info['desc']}\n")
@@ -225,7 +224,7 @@ def main():
     print(f"{'─'*50}")
     print(narration)
 
-    # 清理音频临时文件
+    # Clean up temp audio file
     if audio_path.exists():
         os.remove(audio_path)
 

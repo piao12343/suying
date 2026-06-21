@@ -1,6 +1,5 @@
 """
-速影 - 视频发布模块 (抖音等平台)
-模块化设计, 方便以后扩展其他平台
+Video publishing module (Douyin etc.)
 """
 
 import os
@@ -11,33 +10,32 @@ import io
 from pathlib import Path
 from datetime import datetime
 
-# ============ 环境修补 ============
-# tkinter GUI 运行时 sys.stdout/stderr 可能为 None,
-# 会导致 loguru 等库报错 "Cannot log to objects of type 'NoneType'"
-# 需要在导入 social-auto-upload 之前修补
+# ============ Env Patch ============
+# tkinter GUI may leave sys.stdout/stderr as None,
+# causing loguru errors. Fix before importing social-auto-upload.
 if sys.stdout is None:
     sys.stdout = io.StringIO()
 if sys.stderr is None:
     sys.stderr = io.StringIO()
 
-# social-auto-upload 路径: 优先环境变量, 回退到仓库根目录下
+# social-auto-upload path: env var > repo sibling dir
 SAU_DIR = Path(os.environ.get('SAU_DIR', str(Path(__file__).resolve().parent.parent / 'social-auto-upload')))
 if str(SAU_DIR) not in sys.path:
     sys.path.insert(0, str(SAU_DIR))
 
-# 确保日志目录存在 (social-auto-upload 的 loguru 需要)
+# Ensure log dir exists (needed by social-auto-upload loguru)
 (SAU_DIR / 'logs').mkdir(parents=True, exist_ok=True)
 
-# Cookie 存储目录
+# Cookie storage dir
 COOKIE_DIR = Path(__file__).resolve().parent.parent / 'config' / 'cookies'
 COOKIE_DIR.mkdir(parents=True, exist_ok=True)
 DOUYIN_COOKIE_FILE = COOKIE_DIR / 'douyin_creator.json'
 
 
 def check_douyin_login():
-    """检查抖音登录状态 (同步接口)
+    """Check Douyin login status (sync wrapper)
     Returns:
-        bool: True 表示已登录, False 表示未登录或 cookie 失效
+        bool: True if logged in, False otherwise
     """
     try:
         from uploader.douyin_uploader.main import douyin_setup
@@ -57,10 +55,10 @@ def check_douyin_login():
 
 
 def login_douyin(qrcode_callback=None):
-    """执行抖音登录流程 (同步接口)
+    """Execute Douyin login flow (sync wrapper)
 
     Args:
-        qrcode_callback: 二维码回调函数, 接收 dict: {'image_path': str, 'image_data_url': str}
+        qrcode_callback: QR code callback, receives dict: {'image_path': str, 'image_data_url': str}
 
     Returns:
         dict: {'success': bool, 'message': str, 'account_file': str}
@@ -74,7 +72,7 @@ def login_douyin(qrcode_callback=None):
                 handle=True,
                 return_detail=True,
                 qrcode_callback=qrcode_callback,
-                headless=False  # 登录时需要显示浏览器让用户扫码
+                headless=False  # Login requires visible browser for QR scan
             )
             return result
 
@@ -91,19 +89,19 @@ def publish_to_douyin(video_path, title, tags=None, description=None,
                       publish_strategy='immediate', publish_date=None,
                       thumbnail_portrait_path=None, thumbnail_landscape_path=None,
                       headless=True, debug=False):
-    """发布视频到抖音 (同步接口)
+    """Publish video to Douyin (sync wrapper)
 
     Args:
-        video_path: 视频文件路径 (str 或 Path)
-        title: 视频标题 (最多30字)
-        tags: 标签列表, 如 ['故事', '情感']
-        description: 视频描述, 为空则使用 title
-        publish_strategy: 'immediate' 立即发布, 'scheduled' 定时发布
-        publish_date: 定时发布时间 (datetime), 仅 scheduled 模式有效
-        thumbnail_portrait_path: 竖版封面图片路径
-        thumbnail_landscape_path: 横版封面图片路径
-        headless: 是否无头模式运行浏览器
-        debug: 是否开启调试模式
+        video_path: video file path (str or Path)
+        title: video title (max 30 chars)
+        tags: tag list, e.g. ['story', 'emotion']
+        description: video description, defaults to title
+        publish_strategy: 'immediate' or 'scheduled'
+        publish_date: scheduled publish datetime, only for scheduled mode
+        thumbnail_portrait_path: portrait cover image path
+        thumbnail_landscape_path: landscape cover image path
+        headless: run browser headless
+        debug: enable debug mode
 
     Returns:
         dict: {'success': bool, 'message': str}
@@ -148,24 +146,24 @@ def publish_to_douyin(video_path, title, tags=None, description=None,
         return {'success': False, 'message': f'发布失败: {e}'}
 
 
-# ============ 扩展接口 (预留) ============
+# ============ Extension Stubs ============
 
 def publish_to_xiaohongshu(video_path, title, tags=None, **kwargs):
-    """发布到小红书 (预留接口)"""
+    """Publish to Xiaohongshu (stub)"""
     return {'success': False, 'message': '小红书发布功能尚未实现'}
 
 
 def publish_to_kuaishou(video_path, title, tags=None, **kwargs):
-    """发布到快手 (预留接口)"""
+    """Publish to Kuaishou (stub)"""
     return {'success': False, 'message': '快手发布功能尚未实现'}
 
 
 def publish_to_bilibili(video_path, title, tags=None, **kwargs):
-    """发布到B站 (预留接口)"""
+    """Publish to Bilibili (stub)"""
     return {'success': False, 'message': 'B站发布功能尚未实现'}
 
 
-# ============ 统一发布接口 ============
+# ============ Unified Publish API ============
 
 PLATFORMS = {
     'douyin': {'name': '抖音', 'func': publish_to_douyin},
@@ -176,14 +174,14 @@ PLATFORMS = {
 
 
 def publish_video(platform, video_path, title, tags=None, **kwargs):
-    """统一发布接口
+    """Unified publish API
 
     Args:
-        platform: 平台标识 ('douyin', 'xiaohongshu', 'kuaishou', 'bilibili')
-        video_path: 视频文件路径
-        title: 视频标题
-        tags: 标签列表
-        **kwargs: 其他平台特定参数
+        platform: platform ID ('douyin', 'xiaohongshu', 'kuaishou', 'bilibili')
+        video_path: video file path
+        title: video title
+        tags: tag list
+        **kwargs: platform-specific params
 
     Returns:
         dict: {'success': bool, 'message': str, 'platform': str}
@@ -197,12 +195,12 @@ def publish_video(platform, video_path, title, tags=None, **kwargs):
 
 
 def get_supported_platforms():
-    """获取支持的平台列表"""
+    """Get list of supported platforms"""
     return [{'id': k, 'name': v['name']} for k, v in PLATFORMS.items()]
 
 
 if __name__ == '__main__':
-    # 测试代码
+    # Test code
     print('支持的发布平台:')
     for p in get_supported_platforms():
         print(f"  - {p['name']} ({p['id']})")
