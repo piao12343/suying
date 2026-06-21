@@ -2,8 +2,8 @@ name: build
 
 on:
   schedule:
-    # Poll Cloudflare Worker every 15 min for pending links
-    - cron: '*/15 * * * *'
+    # Poll Cloudflare Worker every minute for pending links
+    - cron: '*/1 * * * *'
   workflow_dispatch:
     inputs:
       url:
