@@ -130,6 +130,7 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
           cd 配置/social-auto-upload
+          cp conf.example.py conf.py
           pip install -r requirements.txt
           echo "SAU_DIR=${{ github.workspace }}/配置/social-auto-upload" >> $GITHUB_ENV
 
