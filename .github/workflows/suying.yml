@@ -1,0 +1,155 @@
+name: 速影 - Video Pipeline
+
+on:
+  schedule:
+    # 每60分钟轮询一次 Cloudflare Worker 获取待处理链接
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      url:
+        description: '抖音视频链接 (留空则轮询 Cloudflare)'
+        required: false
+        type: string
+
+env:
+  SUYING_OPENROUTER_API_KEY: ${{ secrets.SUYING_OPENROUTER_API_KEY }}
+  SUYING_PEXELS_API_KEY: ${{ secrets.SUYING_PEXELS_API_KEY }}
+  SUYING_LISTENER_SECRET: ${{ secrets.SUYING_LISTENER_SECRET }}
+  SUYING_LISTENER_WORKER_URL: ${{ secrets.SUYING_LISTENER_WORKER_URL }}
+  SUYING_PUSHPLUS_TOKEN: ${{ secrets.SUYING_PUSHPLUS_TOKEN }}
+  SUYING_TTS_VOICE: ${{ secrets.SUYING_TTS_VOICE }}
+  SUYING_TTS_RATE: ${{ secrets.SUYING_TTS_RATE }}
+  SUYING_OPENROUTER_MODEL: ${{ secrets.SUYING_OPENROUTER_MODEL }}
+  SUYING_PUB_DESC: ${{ secrets.SUYING_PUB_DESC }}
+  SUYING_AUTO_PUBLISH: ${{ secrets.SUYING_AUTO_PUBLISH }}
+
+jobs:
+  poll-and-process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ======== 阶段1: 轻量轮询 ========
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check for pending links
+        id: poll
+        run: |
+          pip install requests --quiet
+          python -c "
+          import requests, os, json
+
+          manual_url = '${{ github.event.inputs.url }}'
+          if manual_url:
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write('has_work=true\n')
+                  f.write('links=' + json.dumps([manual_url]) + '\n')
+              exit(0)
+
+          url = os.environ.get('SUYING_LISTENER_WORKER_URL', '').rstrip('/')
+          secret = os.environ.get('SUYING_LISTENER_SECRET', '')
+          if not url or not secret:
+              print('Worker URL or Secret not configured')
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write('has_work=false\n')
+              exit(0)
+
+          try:
+              resp = requests.get(f'{url}/api/poll', params={'secret': secret}, timeout=15)
+              if resp.status_code == 200:
+                  data = resp.json()
+                  links = [i['link'] for i in data.get('links', []) if i.get('link')]
+                  if links:
+                      with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                          f.write('has_work=true\n')
+                          f.write('links=' + json.dumps(links) + '\n')
+                  else:
+                      with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                          f.write('has_work=false\n')
+              else:
+                  print(f'Poll returned {resp.status_code}')
+                  with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                      f.write('has_work=false\n')
+          except Exception as e:
+              print(f'Poll error: {e}')
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write('has_work=false\n')
+          "
+
+      # ======== 无任务时提前退出 ========
+      - name: No pending links
+        if: steps.poll.outputs.has_work != 'true'
+        run: echo "No pending links found. Exiting early."
+
+      # ======== 阶段2: 完整流水线 (仅在有任务时执行) ========
+      - name: Install system dependencies
+        if: steps.poll.outputs.has_work == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-noto-cjk
+
+      - name: Cache pip packages
+        if: steps.poll.outputs.has_work == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Cache faster-whisper model
+        if: steps.poll.outputs.has_work == 'true'
+        uses: actions/cache@v4
+        with:
+          path: cache/hf_models
+          key: whisper-model-small-v3
+          restore-keys: whisper-model-small-
+
+      - name: Cache Playwright browsers
+        if: steps.poll.outputs.has_work == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-chromium-v1
+
+      - name: Install Python dependencies
+        if: steps.poll.outputs.has_work == 'true'
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install chromium
+          python -m playwright install-deps chromium
+
+      - name: Clone social-auto-upload
+        if: steps.poll.outputs.has_work == 'true'
+        run: |
+          git clone --depth 1 https://github.com/dreammis/social-auto-upload.git
+          cd social-auto-upload
+          pip install -r requirements.txt
+          echo "SAU_DIR=${{ github.workspace }}/social-auto-upload" >> $GITHUB_ENV
+
+      - name: Write Douyin cookies
+        if: steps.poll.outputs.has_work == 'true'
+        run: |
+          mkdir -p config/cookies
+          echo '${{ secrets.DOUYIN_COOKIES_JSON }}' > config/cookies/douyin_creator.json
+
+      - name: Process videos
+        if: steps.poll.outputs.has_work == 'true'
+        env:
+          FFMPEG_PATH: /usr/bin/ffmpeg
+          SAU_DIR: ${{ github.workspace }}/social-auto-upload
+        run: |
+          python src/cli_pipeline.py --poll
+
+      - name: Upload artifacts
+        if: steps.poll.outputs.has_work == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: suying-outputs-${{ github.run_number }}
+          path: outputs/
+          retention-days: 7

@@ -1,0 +1,23 @@
+# 产出和缓存
+outputs/
+cache/
+*.mp4
+*.mp3
+*.wav
+
+# 密钥文件
+config/cookies/
+config/config.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# social-auto-upload (workflow 中 clone, 不提交)
+social-auto-upload/
