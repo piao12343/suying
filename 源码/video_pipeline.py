@@ -448,9 +448,13 @@ def prepare_image(image_path, output_path, width, height, ffmpeg_path):
     return output_path
 
 
-def create_kenburns_clip(image_path, output_path, duration, width, height, fps, ffmpeg_path, direction='zoom_in', transition_duration=0):
+def create_kenburns_clip(image_path, output_path, duration, width, height, fps,
+                         ffmpeg_path, direction='zoom_in', transition_duration=0,
+                         fade_in_duration=None, fade_out_duration=None):
     """创建Ken Burns效果的单个视频片段。
     transition_duration: 淡入淡出时长(秒), 0=不添加转场。
+    fade_in_duration/fade_out_duration: 分别控制开头淡入和结尾淡出;
+        为 None 时沿用 transition_duration。
     """
     total_frames = int(duration * fps)
     w2 = width * 2  # 先放大再缩放, 保证zoompan有足够像素
@@ -494,9 +498,15 @@ def create_kenburns_clip(image_path, output_path, duration, width, height, fps, 
 
     # 构建视频滤镜链
     vf = f"{zp},format=yuv420p"
-    if transition_duration > 0:
-        fade_out_start = max(duration - transition_duration, 0)
-        vf += f",fade=t=in:st=0:d={transition_duration},fade=t=out:st={fade_out_start}:d={transition_duration}"
+    if fade_in_duration is None:
+        fade_in_duration = transition_duration
+    if fade_out_duration is None:
+        fade_out_duration = transition_duration
+    if fade_in_duration > 0:
+        vf += f",fade=t=in:st=0:d={fade_in_duration}"
+    if fade_out_duration > 0:
+        fade_out_start = max(duration - fade_out_duration, 0)
+        vf += f",fade=t=out:st={fade_out_start}:d={fade_out_duration}"
 
     cmd = [
         str(ffmpeg_path), '-y',

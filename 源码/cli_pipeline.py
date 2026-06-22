@@ -397,7 +397,13 @@ class Pipeline:
             cp = cdir / f"clip_{s['id']:02d}.mp4"
             dr = dirs[(s['id']-1) % 4]
             sd = max((len(s['text'])/tc) * sum(x['duration'] for x in self.segments), 3.0)
-            if create_kenburns_clip(im['image_path'], cp, sd, W, H, fps, ffmpeg, dr, transition_duration=trans_dur):
+            fade_in = 0 if not cfs else trans_dur
+            if create_kenburns_clip(
+                im['image_path'], cp, sd, W, H, fps, ffmpeg, dr,
+                transition_duration=trans_dur,
+                fade_in_duration=fade_in,
+                fade_out_duration=trans_dur,
+            ):
                 cfs.append(str(cp))
                 log(f'    + 片段{s["id"]}: {dr} {sd:.1f}s')
             else:
