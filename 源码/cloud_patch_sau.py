@@ -3,6 +3,17 @@
 在 workflow 中克隆 social-auto-upload 后运行此脚本
 
 v4: 封面弹窗在云端无法自然关闭, 点击"完成"后等10秒再用JS强制移除所有遮挡层
+    已测试通过 (2026-06-22), 自定义封面可正常设置并发布成功
+
+备选方案 (如果JS移除方案失效):
+    跳过自定义封面, 让抖音自动选推荐封面
+    只需把步骤3的 new_block 替换为以下内容:
+        new_block = [
+            f'{pad}douyin_logger.info(_msg("\\U0001f4f7", "\\u4e91\\u7aef\\u8df3\\u8fc7\\u81ea\\u5b9a\\u4e49\\u5c01\\u9762, \\u53d1\\u5e03\\u65f6\\u81ea\\u52a8\\u9009\\u62e9\\u63a8\\u8350\\u5c01\\u9762"))',
+            f'{pad}return',
+        ]
+    这样 set_thumbnail 直接 return, 不上传封面, 发布时由 handle_auto_video_cover 自动选推荐封面
+    此方案也已测试通过 (2026-06-22)
 """
 import sys
 
