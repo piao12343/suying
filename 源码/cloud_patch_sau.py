@@ -2,7 +2,7 @@
 云端适配补丁: 修改 social-auto-upload 的 douyin_uploader 以适配慢速云端环境
 在 workflow 中克隆 social-auto-upload 后运行此脚本
 
-v3: 按行匹配, 不依赖精确多行字符串; 每步验证替换是否成功
+v4: 封面弹窗在云端无法自然关闭, 点击"完成"后等10秒再用JS强制移除所有遮挡层
 """
 import sys
 
@@ -35,7 +35,7 @@ def patch():
         else:
             print(f'[WARN] step2: {variant} cover pattern not found (may already be patched)')
 
-    # ── 步骤 3: 封面"完成"按钮 — 按行匹配, 诊断 disabled 状态 ──
+    # ── 步骤 3: 封面"完成"按钮 — 按行匹配, 点击后JS强制移除弹窗 ──
     lines = code.split('\n')
     click_line_idx = None
     detach_line_idx = None
@@ -77,7 +77,7 @@ def patch():
         ]
         lines[click_line_idx:detach_line_idx + 1] = new_block
         code = '\n'.join(lines)
-        print('[OK] step3: replaced with diagnostic code')
+        print('[OK] step3: replaced with JS force-remove code')
     else:
         print(f'[FAIL] step3: click_line={click_line_idx}, detach_line={detach_line_idx}')
         ok = False
