@@ -58,18 +58,22 @@ def patch():
 
         new_block = [
             f'{pad}finish_btn = cover_locator.get_by_role("button", name="\u5b8c\u6210", exact=True).first',
-            f'{pad}# \u8bca\u65ad: \u68c0\u67e5\u6309\u94ae\u662f\u5426 disabled',
-            f'{pad}for _wait_i in range(24):  # \u6700\u591a\u7b49 120 \u79d2 (24 * 5)',
-            f'{pad}    is_disabled = await finish_btn.is_disabled()',
-            f'{pad}    douyin_logger.info(_msg("\\U0001f50d", f"\\u5c01\\u9762\\u5b8c\\u6210\\u6309\\u94ae: disabled={{is_disabled}}, \\u5df2\\u7b49{{_wait_i*5}}\\u79d2"))',
-            f'{pad}    if not is_disabled:',
-            f'{pad}        break',
-            f'{pad}    await asyncio.sleep(5)',
             f'{pad}await asyncio.sleep(2)',
             f'{pad}await finish_btn.click(force=True)',
             f'{pad}douyin_logger.info(_msg("\\U0001f973", "\\u5df2\\u70b9\\u51fb\\u5c01\\u9762\\u5b8c\\u6210, \\u7b49\\u5f85\\u5f39\\u7a97\\u5173\\u95ed..."))',
-            f'{pad}await cover_locator.wait_for(state="detached", timeout=120000)',
-            f'{pad}douyin_logger.info(_msg("\U0001f973", "\u89c6\u9891\u5c01\u9762\u8bbe\u7f6e\u5b8c\u6210"))',
+            f'{pad}# \u4e91\\u7aef\\u5f39\\u7a97\\u65e0\\u6cd5\\u81ea\\u7136\\u5173\\u95ed, \\u7b49 10 \\u79d2\\u540e JS \\u5f3a\\u5236\\u79fb\\u9664',
+            f'{pad}await asyncio.sleep(10)',
+            f'{pad}try:',
+            f'{pad}    still_visible = await cover_locator.is_visible()',
+            f'{pad}    if still_visible:',
+            f'{pad}        douyin_logger.info(_msg("\\U0001f527", "\\u5f39\\u7a97\\u4ecd\\u7136\\u5b58\\u5728, JS \\u5f3a\\u5236\\u79fb\\u9664..."))',
+            f'{pad}        await page.evaluate(\'() => {{ document.querySelectorAll(".dy-creator-content-modal-wrap").forEach(e => e.remove()); document.querySelectorAll(".dy-creator-content-modal").forEach(e => e.remove()); }}\')',
+            f'{pad}        await asyncio.sleep(2)',
+            f'{pad}        douyin_logger.info(_msg("\\U0001f973", "\\u5c01\\u9762\\u5f39\\u7a97\\u5df2\\u5f3a\\u5236\\u79fb\\u9664"))',
+            f'{pad}    else:',
+            f'{pad}        douyin_logger.info(_msg("\\U0001f973", "\\u5c01\\u9762\\u5f39\\u7a97\\u5df2\\u81ea\\u7136\\u5173\\u95ed"))',
+            f'{pad}except Exception as _e:',
+            f'{pad}    douyin_logger.info(_msg("\\U0001f973", f"\\u5c01\\u9762\\u5f39\\u7a97\\u5904\\u7406\\u5b8c\\u6210: {{_e}}"))',
         ]
         lines[click_line_idx:detach_line_idx + 1] = new_block
         code = '\n'.join(lines)
