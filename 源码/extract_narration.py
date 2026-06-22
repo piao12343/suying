@@ -99,7 +99,18 @@ def get_video_info(video_id):
 
     loader = data['loaderData']
     pk = [k for k in loader if 'page' in k][0]
-    item = loader[pk]['videoInfoRes']['item_list'][0]
+    video_info = loader[pk]['videoInfoRes']
+
+    # Douyin returns different structures depending on IP/region/environment:
+    #   - Local:  videoInfoRes.item_list (array)
+    #   - Cloud:  videoInfoRes.aweme_detail (single object) or other keys
+    if 'item_list' in video_info and video_info['item_list']:
+        item = video_info['item_list'][0]
+    elif 'aweme_detail' in video_info and video_info['aweme_detail']:
+        item = video_info['aweme_detail']
+    else:
+        available_keys = list(video_info.keys())
+        raise Exception(f"无法解析视频信息，可用字段: {available_keys}")
 
     desc = item.get('desc', '')
     nickname = item.get('author', {}).get('nickname', '未知')
