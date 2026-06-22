@@ -160,7 +160,12 @@ jobs:
           set -o pipefail
           xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" \
             python 源码/cli_pipeline.py --poll 2>&1 | python 源码/cloud_log_relay.py
-          code=${PIPESTATUS[0]}
+          codes=("${PIPESTATUS[@]}")
+          code=${codes[0]}
+          relay_code=${codes[1]}
+          if [ "$code" -eq 0 ] && [ "$relay_code" -ne 0 ]; then
+            code=$relay_code
+          fi
           if [ "$code" -eq 0 ]; then
             python 源码/cloud_log_relay.py --line "云端任务完成。" --status success
           else
