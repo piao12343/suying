@@ -19,7 +19,7 @@ env:
   SUYING_OPENROUTER_MODEL: ${{ secrets.SUYING_OPENROUTER_MODEL }}
   SUYING_PUB_DESC: ${{ secrets.SUYING_PUB_DESC }}
   SUYING_AUTO_PUBLISH: ${{ secrets.SUYING_AUTO_PUBLISH }}
-  SUYING_DEBUG_LOGS: true
+  SUYING_DEBUG_LOGS: ${{ secrets.SUYING_DEBUG_LOGS }}
 
 jobs:
   poll-and-process:

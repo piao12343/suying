@@ -12,6 +12,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const SECRET = env.WORKER_SECRET || '';
+    const debugLogsEnabled = String(env.SUYING_DEBUG_LOGS || '').toLowerCase() === 'true';
 
     // CORS 预检
     if (request.method === 'OPTIONS') {
@@ -30,6 +31,12 @@ export default {
       const secret = url.searchParams.get('secret') || url.searchParams.get('s') || '';
       if (SECRET && secret !== SECRET) {
         return new Response('密码错误', { status: 403 });
+      }
+      if (!debugLogsEnabled) {
+        return new Response('日志调试未启用', {
+          status: 404,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        });
       }
       return new Response(LOG_PAGE, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
@@ -60,14 +67,16 @@ export default {
       pending.push(entry);
       await env.LINKS.put('pending', JSON.stringify(pending));
 
-      await writeCurrentLog(env, {
-        status: 'waiting',
-        lines: [
-          `[${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}] 已收到链接, 等待 GitHub Actions 启动...`,
-          link,
-        ],
-        reset: true,
-      });
+      if (debugLogsEnabled) {
+        await writeCurrentLog(env, {
+          status: 'waiting',
+          lines: [
+            `[${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}] 已收到链接, 等待 GitHub Actions 启动...`,
+            link,
+          ],
+          reset: true,
+        });
+      }
 
       // 后台触发 GitHub Actions workflow (不阻塞响应)
       ctx.waitUntil(triggerGitHubWorkflow(env));
@@ -75,12 +84,15 @@ export default {
       return jsonResponse({
         ok: true,
         id: entry.id,
-        logUrl: `/log?s=${encodeURIComponent(secret)}`,
+        logUrl: debugLogsEnabled ? `/log?s=${encodeURIComponent(secret)}` : '',
       });
     }
 
     // ---------- API: 写入临时日志 ----------
     if (url.pathname === '/api/log' && request.method === 'POST') {
+      if (!debugLogsEnabled) {
+        return jsonResponse({ ok: false, error: '日志调试未启用' }, 404);
+      }
       const body = await request.json();
       const secret = body.secret || '';
       if (SECRET && secret !== SECRET) {
@@ -96,6 +108,9 @@ export default {
 
     // ---------- API: 读取临时日志 ----------
     if (url.pathname === '/api/log' && request.method === 'GET') {
+      if (!debugLogsEnabled) {
+        return jsonResponse({ ok: false, error: '日志调试未启用' }, 404);
+      }
       const secret = url.searchParams.get('secret') || url.searchParams.get('s') || '';
       if (SECRET && secret !== SECRET) {
         return jsonResponse({ error: '密码错误' }, 403);
