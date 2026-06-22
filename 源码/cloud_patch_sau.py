@@ -67,7 +67,7 @@ def patch():
             f'{pad}    still_visible = await cover_locator.is_visible()',
             f'{pad}    if still_visible:',
             f'{pad}        douyin_logger.info(_msg("\\U0001f527", "\\u5f39\\u7a97\\u4ecd\\u7136\\u5b58\\u5728, JS \\u5f3a\\u5236\\u79fb\\u9664..."))',
-            f'{pad}        await page.evaluate(\'() => {{ document.querySelectorAll(".dy-creator-content-modal-wrap").forEach(e => e.remove()); document.querySelectorAll(".dy-creator-content-modal").forEach(e => e.remove()); }}\')',
+            f'{pad}        await page.evaluate(\'() => {{ document.querySelectorAll(".dy-creator-content-modal-wrap, .dy-creator-content-modal-mask, .dy-creator-content-modal, .dy-creator-content-portal").forEach(e => e.remove()); }}\')',
             f'{pad}        await asyncio.sleep(2)',
             f'{pad}        douyin_logger.info(_msg("\\U0001f973", "\\u5c01\\u9762\\u5f39\\u7a97\\u5df2\\u5f3a\\u5236\\u79fb\\u9664"))',
             f'{pad}    else:',
