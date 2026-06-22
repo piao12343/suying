@@ -32,7 +32,7 @@ def post_log(lines, status="running", reset=False):
     request = urllib.request.Request(
         base_url + "/api/log",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "User-Agent": "suying-log-relay"},
         method="POST",
     )
     try:
