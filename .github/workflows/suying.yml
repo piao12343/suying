@@ -1,10 +1,6 @@
 name: build
 
 on:
-  schedule:
-    # Poll Cloudflare Worker for pending links
-    # 实际轮询间隔由 cloud_settings.json 的 poll_interval_minutes 控制
-    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       url:
