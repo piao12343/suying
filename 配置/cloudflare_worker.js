@@ -1,19 +1,15 @@
 // ============================================================
 // 速影 - Cloudflare Worker 远程链接中转
-// 部署步骤:
-//   1. 登录 https://dash.cloudflare.com
-//   2. 左侧菜单 → Workers 和 Pages → 创建应用程序 → 创建 Worker
-//   3. 点"编辑代码", 把本文件内容粘贴进去, 点部署
-//   4. 回到 Worker 设置页 → KV 命名空间绑定 → 变量名填 LINKS
-//      → 新建一个 KV 命名空间并绑定
-//   5. 设置 → 变量 → 添加环境变量 WORKER_SECRET, 值自己设一个密码
-//   6. 记下 Worker 的 URL (形如 https://xxx.workers.dev)
-//   7. 填入速影 config.json 的 listener_worker_url 字段
-//   8. 把 WORKER_SECRET 填入 config.json 的 listener_secret 字段
+// 提交链接后直接触发 GitHub Actions workflow, 无需等待轮询
+//
+// 环境变量:
+//   WORKER_SECRET  - 提交页面的访问密钥
+//   GITHUB_TOKEN   - GitHub PAT (需 actions:write 权限)
+//   GITHUB_REPO    - GitHub 仓库, 如 piao12343/suying
 // ============================================================
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const SECRET = env.WORKER_SECRET || '';
 
@@ -29,7 +25,18 @@ export default {
       });
     }
 
-    // ---------- API: 提交链接 (手机 → 云端) ----------
+    // ---------- 临时日志查看页 ----------
+    if (url.pathname === '/log' && request.method === 'GET') {
+      const secret = url.searchParams.get('secret') || url.searchParams.get('s') || '';
+      if (SECRET && secret !== SECRET) {
+        return new Response('密码错误', { status: 403 });
+      }
+      return new Response(LOG_PAGE, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+
+    // ---------- API: 提交链接 ----------
     if (url.pathname === '/api/submit' && request.method === 'POST') {
       const body = await request.json();
       const secret = body.secret || '';
@@ -53,33 +60,62 @@ export default {
       pending.push(entry);
       await env.LINKS.put('pending', JSON.stringify(pending));
 
-      return jsonResponse({ ok: true, id: entry.id });
+      await writeCurrentLog(env, {
+        status: 'waiting',
+        lines: [
+          `[${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}] 已收到链接, 等待 GitHub Actions 启动...`,
+          link,
+        ],
+        reset: true,
+      });
+
+      // 后台触发 GitHub Actions workflow (不阻塞响应)
+      ctx.waitUntil(triggerGitHubWorkflow(env));
+
+      return jsonResponse({
+        ok: true,
+        id: entry.id,
+        logUrl: `/log?s=${encodeURIComponent(secret)}`,
+      });
     }
 
-    // ---------- API: 速影轮询取链接 ----------
+    // ---------- API: 写入临时日志 ----------
+    if (url.pathname === '/api/log' && request.method === 'POST') {
+      const body = await request.json();
+      const secret = body.secret || '';
+      if (SECRET && secret !== SECRET) {
+        return jsonResponse({ error: '密码错误' }, 403);
+      }
+      await writeCurrentLog(env, {
+        status: body.status || 'running',
+        lines: Array.isArray(body.lines) ? body.lines : [],
+        reset: Boolean(body.reset),
+      });
+      return jsonResponse({ ok: true });
+    }
+
+    // ---------- API: 读取临时日志 ----------
+    if (url.pathname === '/api/log' && request.method === 'GET') {
+      const secret = url.searchParams.get('secret') || url.searchParams.get('s') || '';
+      if (SECRET && secret !== SECRET) {
+        return jsonResponse({ error: '密码错误' }, 403);
+      }
+      const log = await readCurrentLog(env);
+      return jsonResponse({ ok: true, ...log });
+    }
+
+    // ---------- API: 轮询取链接 (保留兼容, 不再作为主触发方式) ----------
     if (url.pathname === '/api/poll' && request.method === 'GET') {
       const secret = url.searchParams.get('secret') || '';
       if (SECRET && secret !== SECRET) {
         return jsonResponse({ error: '密码错误' }, 403);
       }
 
-      // 轮询间隔控制: 从 KV 读取 last_poll_time, 未到间隔则跳过
-      const pollInterval = parseInt(url.searchParams.get('poll_interval') || '1', 10);
-      const now = Date.now();
-      const lastPollRaw = await env.LINKS.get('last_poll_time');
-      if (lastPollRaw) {
-        const elapsed = (now - parseInt(lastPollRaw, 10)) / 1000 / 60;
-        if (elapsed < pollInterval) {
-          return jsonResponse({ links: [], skip: true, message: `间隔未到, 剩余${Math.ceil(pollInterval - elapsed)}分钟` });
-        }
-      }
-
       const pendingRaw = await env.LINKS.get('pending');
       const pending = pendingRaw ? JSON.parse(pendingRaw) : [];
 
-      // 取走全部, 清空队列, 记录轮询时间
+      // 取走全部, 清空队列
       await env.LINKS.put('pending', '[]');
-      await env.LINKS.put('last_poll_time', now.toString());
 
       return jsonResponse({ links: pending });
     }
@@ -88,7 +124,79 @@ export default {
   },
 };
 
+// ---- 触发 GitHub Actions ----
+
+async function triggerGitHubWorkflow(env) {
+  const token = env.GITHUB_TOKEN;
+  const repo = env.GITHUB_REPO;
+  if (!token || !repo) {
+    console.log('GitHub 触发跳过: 未配置 GITHUB_TOKEN 或 GITHUB_REPO');
+    return;
+  }
+  try {
+    const resp = await fetch(
+      `https://api.github.com/repos/${repo}/actions/workflows/suying.yml/dispatches`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `token ${token}`,
+          'Accept': 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'suying-worker',
+        },
+        body: JSON.stringify({ ref: 'master' }),
+      }
+    );
+    if (resp.ok) {
+      console.log('GitHub workflow 触发成功');
+    } else {
+      const text = await resp.text();
+      console.log(`GitHub workflow 触发失败: ${resp.status} ${text}`);
+    }
+  } catch (e) {
+    console.log(`GitHub workflow 触发异常: ${e.message}`);
+  }
+}
+
 // ---- 工具函数 ----
+
+async function readCurrentLog(env) {
+  const raw = await env.LINKS.get('debug_log_current');
+  if (!raw) {
+    return {
+      status: 'idle',
+      updatedAt: '',
+      lines: ['暂无运行日志。提交链接后, 这里会显示云端运行状态。'],
+    };
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    return {
+      status: 'unknown',
+      updatedAt: '',
+      lines: ['日志读取失败。'],
+    };
+  }
+}
+
+async function writeCurrentLog(env, update) {
+  const oldLog = update.reset ? { lines: [] } : await readCurrentLog(env);
+  const incoming = (update.lines || []).map(redactLogLine);
+  const lines = [...(oldLog.lines || []), ...incoming].slice(-500);
+  const log = {
+    status: update.status || oldLog.status || 'running',
+    updatedAt: new Date().toISOString(),
+    lines,
+  };
+  await env.LINKS.put('debug_log_current', JSON.stringify(log), { expirationTtl: 21600 });
+}
+
+function redactLogLine(line) {
+  return String(line)
+    .replace(/(token|secret|key|cookie|authorization)(["'\s:=]+)[^\s"']+/ig, '$1$2***')
+    .slice(0, 2000);
+}
 
 function corsHeaders() {
   return {
@@ -143,8 +251,6 @@ button:active{background:#3a7bc8}
   <p id="status"></p>
 </div>
 <script>
-// 从 URL 参数读取密钥 (首次使用时在地址栏加 ?s=你的密钥)
-// 也可以直接在下方填入密钥:
 const SECRET = new URLSearchParams(location.search).get('s') || '';
 
 async function submit(){
@@ -160,7 +266,11 @@ async function submit(){
     });
     const d = await r.json();
     if(d.ok){
-      st.textContent='提交成功, 电脑端将自动生成视频';
+      if(d.logUrl){
+        st.innerHTML='提交成功, 正在自动生成视频...<br><a href="'+d.logUrl+'">查看云端日志</a>';
+      }else{
+        st.textContent='提交成功, 正在自动生成视频...';
+      }
       st.className='success';
       document.getElementById('link').value='';
     }else{
@@ -171,6 +281,56 @@ async function submit(){
     st.textContent='网络错误, 请重试';st.className='error';
   }
 }
+</script>
+</body>
+</html>`;
+
+const LOG_PAGE = `<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>速影 - 云端日志</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#111;color:#eee;font-family:Consolas,Menlo,monospace}
+.bar{position:sticky;top:0;background:#1d1d1d;border-bottom:1px solid #333;
+  padding:10px 12px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.status{font-weight:700}
+.meta{color:#aaa;font-size:13px;margin-left:8px}
+pre{margin:0;padding:12px;white-space:pre-wrap;word-break:break-word;
+  font-size:13px;line-height:1.45}
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="status" id="status">加载中</span>
+  <span class="meta" id="meta"></span>
+</div>
+<pre id="log">加载中...</pre>
+<script>
+const params = new URLSearchParams(location.search);
+const secret = params.get('secret') || params.get('s') || '';
+async function refreshLog(){
+  try{
+    const r = await fetch('/api/log?s=' + encodeURIComponent(secret));
+    const d = await r.json();
+    if(!d.ok){
+      document.getElementById('status').textContent = '读取失败';
+      document.getElementById('log').textContent = d.error || '未知错误';
+      return;
+    }
+    document.getElementById('status').textContent = d.status || 'unknown';
+    document.getElementById('meta').textContent = d.updatedAt ? ('最后更新: ' + new Date(d.updatedAt).toLocaleString()) : '';
+    document.getElementById('log').textContent = (d.lines || []).join('\\n');
+    window.scrollTo(0, document.body.scrollHeight);
+  }catch(e){
+    document.getElementById('status').textContent = '网络错误';
+    document.getElementById('log').textContent = String(e);
+  }
+}
+refreshLog();
+setInterval(refreshLog, 4000);
 </script>
 </body>
 </html>`;

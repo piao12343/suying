@@ -19,6 +19,7 @@ env:
   SUYING_OPENROUTER_MODEL: ${{ secrets.SUYING_OPENROUTER_MODEL }}
   SUYING_PUB_DESC: ${{ secrets.SUYING_PUB_DESC }}
   SUYING_AUTO_PUBLISH: ${{ secrets.SUYING_AUTO_PUBLISH }}
+  SUYING_DEBUG_LOGS: ${{ secrets.SUYING_DEBUG_LOGS }}
 
 jobs:
   poll-and-process:
@@ -88,8 +89,10 @@ jobs:
       - name: Install system dependencies
         if: steps.poll.outputs.has_work == 'true'
         run: |
+          python 源码/cloud_log_relay.py --line "GitHub Actions 已取到链接, 开始准备系统环境。"
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fonts-noto-cjk xvfb
+          python 源码/cloud_log_relay.py --line "系统依赖安装完成。"
 
       - name: Cache pip packages
         if: steps.poll.outputs.has_work == 'true'
@@ -117,13 +120,16 @@ jobs:
       - name: Install Python dependencies
         if: steps.poll.outputs.has_work == 'true'
         run: |
+          python 源码/cloud_log_relay.py --line "开始安装 Python 依赖和浏览器。"
           pip install -r 配置/requirements.txt
           python -m playwright install chromium
           python -m playwright install-deps chromium
+          python 源码/cloud_log_relay.py --line "Python 依赖和 Playwright 浏览器安装完成。"
 
       - name: Clone social-auto-upload
         if: steps.poll.outputs.has_work == 'true'
         run: |
+          python 源码/cloud_log_relay.py --line "开始准备 social-auto-upload 发布组件。"
           git clone --depth 1 https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
           cd 配置/social-auto-upload
           cp conf.example.py conf.py
@@ -133,12 +139,15 @@ jobs:
           python -m patchright install chromium
           python -m patchright install-deps chromium
           echo "SAU_DIR=${{ github.workspace }}/配置/social-auto-upload" >> $GITHUB_ENV
+          python "${{ github.workspace }}/源码/cloud_log_relay.py" --line "social-auto-upload 发布组件准备完成。"
 
       - name: Write Douyin cookies
         if: steps.poll.outputs.has_work == 'true'
         run: |
+          python 源码/cloud_log_relay.py --line "开始写入抖音 cookie。"
           mkdir -p 配置/cookies
           echo '${{ secrets.DOUYIN_COOKIES_JSON }}' > 配置/cookies/douyin_creator.json
+          python 源码/cloud_log_relay.py --line "抖音 cookie 写入完成。"
 
       - name: Process videos
         if: steps.poll.outputs.has_work == 'true'
@@ -147,8 +156,17 @@ jobs:
           SAU_DIR: ${{ github.workspace }}/配置/social-auto-upload
           SUYING_PENDING_LINKS: ${{ steps.poll.outputs.links }}
         run: |
+          set +e
+          set -o pipefail
           xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" \
-            python 源码/cli_pipeline.py --poll
+            python 源码/cli_pipeline.py --poll 2>&1 | python 源码/cloud_log_relay.py
+          code=${PIPESTATUS[0]}
+          if [ "$code" -eq 0 ]; then
+            python 源码/cloud_log_relay.py --line "云端任务完成。" --status success
+          else
+            python 源码/cloud_log_relay.py --line "云端任务失败, 退出码: $code" --status failed
+          fi
+          exit "$code"
 
       - name: Upload artifacts
         if: steps.poll.outputs.has_work == 'true' && always()
