@@ -28,6 +28,7 @@ env:
   SUYING_OPENROUTER_MODEL: ${{ secrets.SUYING_OPENROUTER_MODEL }}
   SUYING_PUB_DESC: ${{ secrets.SUYING_PUB_DESC }}
   SUYING_AUTO_PUBLISH: ${{ secrets.SUYING_AUTO_PUBLISH }}
+  SUYING_GH_PAT: ${{ secrets.SUYING_GH_PAT }}
 
 jobs:
   publish:
@@ -90,3 +91,17 @@ jobs:
           ls -la "$VIDEO_DIR"
           xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" \
             python 源码/publish_only.py "$VIDEO_DIR" '${{ github.event.inputs.title }}' '${{ github.event.inputs.desc }}'
+
+      - name: Save refreshed Douyin cookies
+        env:
+          GH_TOKEN: ${{ env.SUYING_GH_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "SUYING_GH_PAT is not configured; cannot save refreshed Douyin cookies."
+            exit 1
+          fi
+          if [ ! -s 配置/cookies/douyin_creator.json ]; then
+            echo "Douyin cookie file missing or empty; skip saving."
+            exit 1
+          fi
+          gh secret set DOUYIN_COOKIES_JSON --repo "${{ github.repository }}" < 配置/cookies/douyin_creator.json
