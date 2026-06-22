@@ -1,6 +1,8 @@
 """
 云端适配补丁: 修改 social-auto-upload 的 douyin_uploader 以适配慢速云端环境
 在 workflow 中克隆 social-auto-upload 后运行此脚本
+
+核心策略: 云端封面弹窗关闭极慢, 跳过自定义封面上传, 改用抖音推荐封面
 """
 import sys
 
@@ -14,32 +16,17 @@ def patch():
         'douyin_logger.success(_msg("\U0001f973", "\u89c6\u9891\u5df2\u7ecf\u4f20\u5b8c\u5566"))',
         'douyin_logger.success(_msg("\U0001f973", "\u89c6\u9891\u5df2\u7ecf\u4f20\u5b8c\u5566"))\n                    await asyncio.sleep(5)')
 
-    # 2) 封面上传后多等 15 秒, 让云端服务器处理完封面图
-    code = code.replace(
-        'douyin_logger.info(_msg("\U0001f5bc\ufe0f", "\u7ad6\u7248\u5c01\u9762\u5df2\u4e0a\u4f20\u5230\u9884\u89c8"))',
-        'douyin_logger.info(_msg("\U0001f5bc\ufe0f", "\u7ad6\u7248\u5c01\u9762\u5df2\u4e0a\u4f20\u5230\u9884\u89c8"))\n            await asyncio.sleep(15)')
-
-    # 3) 封面"完成"点击 + 日志 + wait_for(detached, 20s) 整块替换
-    #    等弹窗自然关闭; 不关则 JS 删除外层 wrap (真正拦截点击的元凶)
+    # 2) 跳过自定义封面上传 (云端弹窗关闭极慢, 会导致后续发布按钮被遮挡)
+    #    改为在发布时由 handle_auto_video_cover 自动选择推荐封面
     old = (
-        'await cover_locator.get_by_role("button", name="\u5b8c\u6210", exact=True).first.click()\n'
-        '        douyin_logger.info(_msg("\U0001f973", "\u89c6\u9891\u5c01\u9762\u8bbe\u7f6e\u5b8c\u6210"))\n'
-        '        await cover_locator.wait_for(state="detached", timeout=20000)'
+        '    async def set_thumbnail(self, page: Page):\n'
+        '        if not self.thumbnail_landscape_path and not self.thumbnail_portrait_path:\n'
+        '            return'
     )
     new = (
-        'await cover_locator.get_by_role("button", name="\u5b8c\u6210", exact=True).first.click()\n'
-        '        try:\n'
-        '            await cover_locator.wait_for(state="detached", timeout=60000)\n'
-        '        except Exception:\n'
-        '            douyin_logger.info(_msg("\U0001f9f0", "\u5c01\u9762\u5f39\u7a97\u8fd8\u6ca1\u5173, \u518d\u70b9\u4e00\u6b21"))\n'
-        '            try:\n'
-        '                await cover_locator.get_by_role("button", name="\u5b8c\u6210", exact=True).first.click(force=True)\n'
-        '                await cover_locator.wait_for(state="detached", timeout=60000)\n'
-        '            except Exception:\n'
-        '                douyin_logger.warning(_msg("\u26a0\ufe0f", "\u5c01\u9762\u5f39\u7a97\u5173\u4e0d\u4e86, JS\u79fb\u9664\u5916\u5c42wrap"))\n'
-        '                await page.evaluate("() => document.querySelectorAll(\'.dy-creator-content-modal-wrap\').forEach(e => e.remove())")\n'
-        '                await asyncio.sleep(1)\n'
-        '        douyin_logger.info(_msg("\U0001f973", "\u89c6\u9891\u5c01\u9762\u8bbe\u7f6e\u5b8c\u6210"))'
+        '    async def set_thumbnail(self, page: Page):\n'
+        '        douyin_logger.info(_msg("\\U0001f4f7", "\\u4e91\\u7aef\\u8df3\\u8fc7\\u81ea\\u5b9a\\u4e49\\u5c01\\u9762, \\u53d1\\u5e03\\u65f6\\u81ea\\u52a8\\u9009\\u62e9\\u63a8\\u8350\\u5c01\\u9762"))\n'
+        '        return'
     )
     code = code.replace(old, new)
 
