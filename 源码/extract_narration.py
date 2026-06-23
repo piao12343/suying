@@ -27,8 +27,8 @@ FFMPEG_PATH = os.environ.get('FFMPEG_PATH', 'ffmpeg')
 
 WHISPER_MODEL = "small"  # small model works well for Chinese, auto-downloads on first run (~500MB)
 
-# Cache dir: env var > repo cache/
-_CACHE_BASE = Path(os.environ.get('SUYING_CACHE_DIR', str(_BASE / 'cache')))
+# Cache dir: env var > repo 缓存/
+_CACHE_BASE = Path(os.environ.get('SUYING_CACHE_DIR', str(_BASE / '缓存')))
 WORK_DIR = _CACHE_BASE
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -247,6 +247,15 @@ Pages 项目的 HTML 直接调用 Worker 的 `/api/submit`，不需要 Pages Fun
 
 ### 6.4 推送代码到 GitHub
 
+本地修改代码后的普通提交流程:
+
+```bash
+cd D:\Personal\Desktop\suying-github
+git add .
+git commit -m "改了什么"
+git push
+```
+
 git push 到 github.com:443 在本机被封。使用 GitHub Git Data API：
 
 ```python

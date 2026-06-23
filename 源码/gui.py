@@ -794,7 +794,7 @@ class App:
 
     def _refresh_cookie_and_sync_cloud(self):
         """Launch the existing cookie refresh + cloud sync script."""
-        bat = BASE / '刷新抖音Cookie并同步云端.bat'
+        bat = SRC_DIR / 'tools' / '刷新抖音Cookie并同步云端.bat'
         if not bat.exists():
             messagebox.showerror('错误', f'未找到脚本: {bat}')
             return
