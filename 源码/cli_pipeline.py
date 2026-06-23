@@ -493,7 +493,29 @@ class Pipeline:
                             rs.append(b)
             return rs
 
-        evts, alls = [], []
+        def subtitle_text(text):
+            text = re.sub(r'[\r\n]+', ' ', text).strip()
+            return re.sub(r'[，,。.!！？?；;、：:]+$', '', text).strip()
+
+        def add_evt(start, end, text):
+            text = subtitle_text(text)
+            if text and end > start:
+                evts.append(f"Dialogue: 0,{ft(start)},{ft(end)},Default,,0,0,0,,{text}")
+                evt_times.append((start, end))
+
+        def build_ratio_events(reason):
+            nonlocal evts, evt_times
+            log(f'    {reason}, 改用稳定时间轴')
+            evts, evt_times = [], []
+            tsc = sum(len(l) for l in alls) if alls else 1
+            cur = 0.0
+            for l in alls:
+                d = (len(l) / tsc) * tdur if tsc else tdur / len(alls)
+                e = min(cur + d, tdur)
+                add_evt(cur, e, l)
+                cur = e
+
+        evts, evt_times, alls = [], [], []
         for s in self.segments:
             alls.extend(ssp(s['text']))
 
@@ -511,30 +533,23 @@ class Pipeline:
                     norm_acc = re.sub(r'[_\W]+', '', acc_text)
                     norm_tgt = re.sub(r'[_\W]+', '', target)
                     if norm_acc and norm_tgt and (norm_acc == norm_tgt or norm_acc.startswith(norm_tgt)):
-                        evts.append(f"Dialogue: 0,{ft(cur_start)},{ft(b['end'])},Default,,0,0,0,,{target}")
+                        add_evt(cur_start, b['end'], target)
                         sub_idx += 1
                         acc_text = ''
                         cur_start = b['end']
-            # Fallback: equal-spacing for unmatched lines
             if sub_idx < len(alls):
-                remaining = alls[sub_idx:]
-                last_end = wb[-1]['end'] if wb else tdur
-                gap = max(tdur - last_end, 0.5)
-                per = gap / len(remaining)
-                for i, l in enumerate(remaining):
-                    s_t = last_end + i * per
-                    e_t = min(s_t + per, tdur)
-                    evts.append(f"Dialogue: 0,{ft(s_t)},{ft(e_t)},Default,,0,0,0,,{l}")
+                build_ratio_events('词边界未匹配完整字幕')
+            elif evt_times:
+                gaps = [evt_times[i][0] - evt_times[i - 1][1] for i in range(1, len(evt_times))]
+                max_gap = max(gaps) if gaps else 0
+                gap_limit = max(2.5, min(tdur * 0.08, 5.0))
+                last_start, last_end = evt_times[-1]
+                if max_gap > gap_limit:
+                    build_ratio_events(f'词边界字幕中间空档过大({max_gap:.1f}s)')
+                elif last_end > tdur + 0.05 or last_start >= max(tdur - 0.5, tdur * 0.98):
+                    build_ratio_events('词边界字幕结束时间异常')
         else:
-            # Fallback: char ratio estimate
-            log('    无词边界数据, 使用字符比例估算')
-            tsc = sum(len(l) for l in alls) if alls else 1
-            cur = 1.0
-            for l in alls:
-                d = (len(l)/tsc)*(tdur-1.0) if tsc else (tdur-1.0)/len(alls)
-                e = min(cur+d, tdur)
-                evts.append(f"Dialogue: 0,{ft(cur)},{ft(e)},Default,,0,0,0,,{l}")
-                cur = e
+            build_ratio_events('无词边界数据')
 
         ae = str(af).replace('\\', '/').replace(':', '\\:')
         af.write_text(r"""[Script Info]
