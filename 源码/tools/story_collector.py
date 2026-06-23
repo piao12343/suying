@@ -195,19 +195,31 @@ class DouyinCollector:
         if self.playwright is None:
             self.playwright = sync_playwright().start()
         if self.context is None:
-            self.context = self.playwright.chromium.launch_persistent_context(
-                str(PROFILE_DIR),
-                headless=headless,
-                viewport={'width': 1280, 'height': 900},
-                args=['--disable-blink-features=AutomationControlled'],
-            )
+            try:
+                self.context = self.playwright.chromium.launch_persistent_context(
+                    str(PROFILE_DIR),
+                    headless=headless,
+                    viewport={'width': 1280, 'height': 900},
+                    args=['--disable-blink-features=AutomationControlled'],
+                )
+            except Exception as e:
+                msg = str(e)
+                if 'Executable doesn' in msg or 'playwright install' in msg:
+                    raise RuntimeError(
+                        'Playwright 浏览器内核未安装。请先在项目目录运行: '
+                        'python -m playwright install chromium'
+                    ) from e
+                raise
             self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
         return self.page
 
     def open_login(self):
-        page = self.start(headless=False)
-        page.goto('https://www.douyin.com/', wait_until='domcontentloaded', timeout=30000)
-        self.log('已打开抖音, 请扫码或完成登录。登录状态会保存在本机缓存。')
+        try:
+            page = self.start(headless=False)
+            page.goto('https://www.douyin.com/', wait_until='domcontentloaded', timeout=30000)
+            self.log('已打开抖音, 请扫码或完成登录。登录状态会保存在本机缓存。')
+        except Exception as e:
+            self.log(f'打开抖音失败: {e}')
 
     def collect(self, target_count=10):
         page = self.start(headless=False)
