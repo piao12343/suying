@@ -108,6 +108,27 @@ def patch():
         print('[FAIL] step4: self declaration default marker not found')
         ok = False
 
+    # ── 步骤 5: 发布描述/话题要真正写入描述框 ──
+    desc_old = (
+        '        await page.keyboard.press("Delete")\n\n'
+        '        for tag in tags or []:'
+    )
+    desc_new = (
+        '        await page.keyboard.press("Delete")\n'
+        '        if description:\n'
+        '            await page.keyboard.type(description)\n'
+        '            await page.keyboard.press("Space")\n\n'
+        '        for tag in tags or []:'
+    )
+    if desc_new in code:
+        print('[OK] step5: description input already patched')
+    elif desc_old in code:
+        code = code.replace(desc_old, desc_new, 1)
+        print('[OK] step5: description will be typed before tags')
+    else:
+        print('[FAIL] step5: description input marker not found')
+        ok = False
+
     if not ok:
         print('\n=== PATCH FAILED: some steps did not match ===')
         sys.exit(1)

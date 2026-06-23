@@ -74,7 +74,7 @@ export default {
             `[${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}] 已收到链接, 等待 GitHub Actions 启动...`,
             link,
           ],
-          reset: true,
+          reset: false,
         });
       }
 
