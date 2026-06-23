@@ -93,6 +93,18 @@ def patch():
         print(f'[FAIL] step3: click_line={click_line_idx}, detach_line={detach_line_idx}')
         ok = False
 
+    # ── 步骤 4: 自主声明默认改为“无需添加自主声明” ──
+    old_decl = 'declaration: str = "\u5185\u5bb9\u4e3a\u4e2a\u4eba\u89c2\u70b9\u6216\u89c1\u89e3"'
+    new_decl = 'declaration: str = "\u65e0\u9700\u6dfb\u52a0\u81ea\u4e3b\u58f0\u660e"'
+    if old_decl in code:
+        code = code.replace(old_decl, new_decl, 1)
+        print('[OK] step4: self declaration default -> 无需添加自主声明')
+    elif new_decl in code:
+        print('[OK] step4: self declaration default already patched')
+    else:
+        print('[FAIL] step4: self declaration default marker not found')
+        ok = False
+
     if not ok:
         print('\n=== PATCH FAILED: some steps did not match ===')
         sys.exit(1)
