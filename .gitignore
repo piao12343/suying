@@ -23,3 +23,6 @@ Thumbs.db
 # social-auto-upload (clone, 不提交)
 social-auto-upload/
 配置/social-auto-upload/
+
+# 本地启动日志
+story_collector_launcher.log
