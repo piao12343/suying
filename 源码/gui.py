@@ -364,7 +364,7 @@ class App:
         win.title('设置')
         # Center on main window
         win.update_idletasks()
-        pw, ph = 520, 360
+        pw, ph = 560, 440
         rx = self.root.winfo_x()
         ry = self.root.winfo_y()
         rw = self.root.winfo_width()
@@ -395,10 +395,10 @@ class App:
 
         interval_row = ttk.Frame(pub_section)
         interval_row.pack(fill='x', pady=3)
-        ttk.Label(interval_row, text='发布间隔:', width=18, anchor='e').pack(side='left')
+        ttk.Label(interval_row, text='定时发布间隔:', width=18, anchor='e').pack(side='left')
         interval_var = tk.StringVar(value=str(config.get('publish_interval_minutes', 120)))
         ttk.Entry(interval_row, textvariable=interval_var, width=8).pack(side='left', padx=(6, 4))
-        ttk.Label(interval_row, text='分钟，多条任务时相邻发布的间隔',
+        ttk.Label(interval_row, text='分钟，多条链接时相邻视频的定时发布间隔',
                   foreground='gray', font=('', 8)).pack(side='left', padx=(4, 0))
 
         desc_row = ttk.Frame(pub_section)
