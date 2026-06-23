@@ -101,7 +101,7 @@ jobs:
       - name: Install system dependencies
         if: steps.poll.outputs.has_work == 'true'
         run: |
-          python 源码/cloud_log_relay.py --line "GitHub Actions 已取到链接, 开始准备系统环境。"
+          python 源码/cloud_log_relay.py --line "GitHub Actions 已取到链接, 开始准备系统环境。" --reset
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fonts-noto-cjk xvfb
           python 源码/cloud_log_relay.py --line "系统依赖安装完成。"

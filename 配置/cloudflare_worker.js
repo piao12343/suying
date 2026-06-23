@@ -268,13 +268,15 @@ async function readCurrentLog(env) {
 async function writeCurrentLog(env, update) {
   const oldLog = update.reset ? { lines: [] } : await readCurrentLog(env);
   const incoming = (update.lines || []).map(redactLogLine);
-  const lines = [...(oldLog.lines || []), ...incoming].slice(-500);
+  const lines = [...(oldLog.lines || []), ...incoming].slice(-200);
   const log = {
     status: update.status || oldLog.status || 'running',
     updatedAt: new Date().toISOString(),
     lines,
   };
-  await env.LINKS.put('debug_log_current', JSON.stringify(log), { expirationTtl: 21600 });
+  const done = log.status === 'success' || log.status === 'failed';
+  const ttl = done ? 1800 : 21600;
+  await env.LINKS.put('debug_log_current', JSON.stringify(log), { expirationTtl: ttl });
 }
 
 function redactLogLine(line) {
