@@ -343,7 +343,7 @@ class App:
     # Step 7: Publish video (embedded in debug Notebook)
     # ----------------------------------------------------------------
     def _build_step7_publish(self, parent):
-        """Build step 7 publish content: login status + publish form + publish button"""
+        """Build step 7 publish content: Douyin account status only."""
         # Login status row
         login_row = ttk.Frame(parent)
         login_row.pack(fill='x', padx=10, pady=(0, 8))
@@ -355,68 +355,63 @@ class App:
         ttk.Button(login_row, text='刷新状态', command=self._check_douyin_status).pack(
             side='left', padx=(4, 0))
 
-        # Publish form
-        form = ttk.Frame(parent)
-        form.pack(fill='x', padx=10, pady=(6, 0))
+    # ----------------------------------------------------------------
+    # Settings dialog (Toplevel)
+    # ----------------------------------------------------------------
+    def _open_settings(self):
+        """Open settings dialog"""
+        win = tk.Toplevel(self.root)
+        win.title('设置')
+        # Center on main window
+        win.update_idletasks()
+        pw, ph = 480, 360
+        rx = self.root.winfo_x()
+        ry = self.root.winfo_y()
+        rw = self.root.winfo_width()
+        rh = self.root.winfo_height()
+        x = rx + (rw - pw) // 2
+        y = ry + (rh - ph) // 2
+        win.geometry(f'{pw}x{ph}+{x}+{y}')
+        win.transient(self.root)
+        win.grab_set()
 
-        # Load publish settings from config
-        pub_config = load_config()
+        config = load_config()
 
-        # Video title
-        ttk.Label(form, text='标题:').grid(row=0, column=0, sticky='e', padx=(0, 8), pady=4)
-        title_row = ttk.Frame(form)
-        title_row.grid(row=0, column=1, sticky='w', pady=4)
-        self.pub_title_var = tk.StringVar(value=pub_config.get('pub_title', ''))
-        ttk.Entry(title_row, textvariable=self.pub_title_var, width=40).pack(side='left')
-        ttk.Label(title_row, text='留空则使用第2步改写标题', foreground='gray',
-                  font=('', 8)).pack(side='left', padx=(6, 0))
+        # -- Publish settings --
+        pub_section = ttk.LabelFrame(win, text='发布设置', padding=(12, 8))
+        pub_section.pack(fill='x', padx=15, pady=(15, 10))
 
-        # Hashtags (single input row, user enters #hashtag format)
-        ttk.Label(form, text='话题:').grid(row=1, column=0, sticky='e', padx=(0, 8), pady=4)
-        tag_row = ttk.Frame(form)
-        tag_row.grid(row=1, column=1, sticky='w', pady=4)
-        self.pub_desc_var = tk.StringVar(value=pub_config.get('pub_desc', ''))
-        ttk.Entry(tag_row, textvariable=self.pub_desc_var, width=40).pack(side='left')
-        ttk.Label(tag_row, text='如: #故事 #情感 #人生', foreground='gray',
-                  font=('', 8)).pack(side='left', padx=(6, 0))
+        desc_row = ttk.Frame(pub_section)
+        desc_row.pack(fill='x', pady=3)
+        ttk.Label(desc_row, text='发布话题:', width=14, anchor='e').pack(side='left')
+        pub_desc_var = tk.StringVar(value=config.get('pub_desc', ''))
+        ttk.Entry(desc_row, textvariable=pub_desc_var, width=35).pack(side='left', padx=(6, 0))
 
-        # Publish mode + scheduled time (same row)
-        ttk.Label(form, text='发布方式:').grid(row=2, column=0, sticky='e', padx=(0, 8), pady=4)
-        strategy_frame = ttk.Frame(form)
-        strategy_frame.grid(row=2, column=1, sticky='w', pady=4)
-        self.pub_strategy_var = tk.StringVar(value=pub_config.get('pub_strategy', 'immediate'))
-        ttk.Radiobutton(strategy_frame, text='立即发布', variable=self.pub_strategy_var,
-                         value='immediate', command=self._on_strategy_change).pack(side='left')
-        ttk.Radiobutton(strategy_frame, text='定时发布', variable=self.pub_strategy_var,
-                         value='scheduled', command=self._on_strategy_change).pack(side='left', padx=(12, 0))
-        self.pub_schedule_var = tk.StringVar()
-        self._sched_entry = ttk.Entry(strategy_frame, textvariable=self.pub_schedule_var, width=20, state='disabled')
-        self._sched_entry.pack(side='left', padx=(8, 0))
-        self._sched_hint = ttk.Label(strategy_frame, text='2025-06-20 14:00', foreground='gray',
-                  font=('', 8))
-        self._sched_hint.pack(side='left', padx=(4, 0))
+        interval_row = ttk.Frame(pub_section)
+        interval_row.pack(fill='x', pady=3)
+        ttk.Label(interval_row, text='发布间隔(分钟):', width=14, anchor='e').pack(side='left')
+        interval_var = tk.StringVar(value=str(config.get('publish_interval_minutes', 120)))
+        ttk.Entry(interval_row, textvariable=interval_var, width=8).pack(side='left', padx=(6, 0))
+        ttk.Label(interval_row, text='多条任务时, 相邻发布的时间间隔',
+                  foreground='gray', font=('', 8)).pack(side='left', padx=(8, 0))
 
-        # Auto-save publish settings when variables change
-        self.pub_title_var.trace_add('write', lambda *_: self._save_publish_settings())
-        self.pub_desc_var.trace_add('write', lambda *_: self._save_publish_settings())
-        self.pub_strategy_var.trace_add('write', lambda *_: self._save_publish_settings())
+        local_poll_row = ttk.Frame(pub_section)
+        local_poll_row.pack(fill='x', pady=3)
+        ttk.Label(local_poll_row, text='本地监听轮询:', width=14, anchor='e').pack(side='left')
+        local_poll_var = tk.StringVar(value=str(config.get('listener_interval_seconds', 30)))
+        ttk.Entry(local_poll_row, textvariable=local_poll_var, width=8).pack(side='left', padx=(6, 0))
+        ttk.Label(local_poll_row, text='秒，仅本地远程监听使用，云端不用',
+                  foreground='gray', font=('', 8)).pack(side='left', padx=(8, 0))
 
-        # Restore state if scheduled publishing was previously selected
-        if pub_config.get('pub_strategy') == 'scheduled':
-            self._on_strategy_change()
-
-        # Cloud publish shortcuts
-        cloud_frame = ttk.LabelFrame(parent, text='云端发布', padding=(10, 8))
-        cloud_frame.pack(fill='x', padx=10, pady=(12, 0))
-
+        cloud_section = ttk.LabelFrame(win, text='云端同步', padding=(12, 8))
+        cloud_section.pack(fill='x', padx=15, pady=(0, 10))
         ttk.Label(
-            cloud_frame,
-            text='把本地配置同步到云端。Cookie 登录状态请单独刷新同步。',
+            cloud_section,
+            text='本地配置是主配置。关电脑前同步一次，云端会按同样设置运行。',
             foreground='gray',
             font=('', 8)
         ).pack(anchor='w', pady=(0, 6))
-
-        cloud_btn_row = ttk.Frame(cloud_frame)
+        cloud_btn_row = ttk.Frame(cloud_section)
         cloud_btn_row.pack(fill='x')
         self.cloud_sync_btn = ttk.Button(
             cloud_btn_row,
@@ -430,76 +425,6 @@ class App:
             command=self._refresh_cookie_and_sync_cloud,
         ).pack(side='left', padx=(8, 0))
 
-    # ----------------------------------------------------------------
-    # Settings dialog (Toplevel)
-    # ----------------------------------------------------------------
-    def _open_settings(self):
-        """Open settings dialog"""
-        win = tk.Toplevel(self.root)
-        win.title('设置')
-        # Center on main window
-        win.update_idletasks()
-        pw, ph = 480, 430
-        rx = self.root.winfo_x()
-        ry = self.root.winfo_y()
-        rw = self.root.winfo_width()
-        rh = self.root.winfo_height()
-        x = rx + (rw - pw) // 2
-        y = ry + (rh - ph) // 2
-        win.geometry(f'{pw}x{ph}+{x}+{y}')
-        win.transient(self.root)
-        win.grab_set()
-
-        config = load_config()
-
-        # -- Auto publish --
-        pub_section = ttk.LabelFrame(win, text='自动发布', padding=(12, 8))
-        pub_section.pack(fill='x', padx=15, pady=(15, 10))
-
-        auto_var = tk.BooleanVar(value=config.get('auto_publish_douyin', False))
-        chk_row = ttk.Frame(pub_section)
-        chk_row.pack(fill='x', pady=3)
-        ttk.Checkbutton(chk_row, text='自动生成后发布到抖音', variable=auto_var).pack(side='left')
-
-        interval_row = ttk.Frame(pub_section)
-        interval_row.pack(fill='x', pady=3)
-        ttk.Label(interval_row, text='发布间隔(分钟):', width=14, anchor='e').pack(side='left')
-        interval_var = tk.StringVar(value=str(config.get('publish_interval_minutes', 120)))
-        ttk.Entry(interval_row, textvariable=interval_var, width=8).pack(side='left', padx=(6, 0))
-        ttk.Label(interval_row, text='多条任务时, 相邻发布的时间间隔',
-                  foreground='gray', font=('', 8)).pack(side='left', padx=(8, 0))
-
-        # -- Narration rewrite --
-        rewrite_section = ttk.LabelFrame(win, text='文案改写', padding=(12, 8))
-        rewrite_section.pack(fill='x', padx=15, pady=(0, 10))
-
-        ri_row = ttk.Frame(rewrite_section)
-        ri_row.pack(fill='x', pady=3)
-        ttk.Label(ri_row, text='自定义指令:', width=14, anchor='e').pack(side='left')
-        rewrite_instr_var = tk.StringVar(value=config.get('rewrite_custom_instruction', ''))
-        ri_entry = ttk.Entry(ri_row, textvariable=rewrite_instr_var, width=35)
-        ri_entry.pack(side='left', padx=(6, 0))
-        ttk.Label(rewrite_section, text='如: 语气更幽默、文案控制在800字以内、多用反问句',
-                  foreground='gray', font=('', 8)).pack(anchor='w', padx=(100, 0))
-
-        # -- Video effects --
-        fx_section = ttk.LabelFrame(win, text='视频效果', padding=(12, 8))
-        fx_section.pack(fill='x', padx=15, pady=(0, 10))
-
-        trans_var = tk.BooleanVar(value=config.get('transition_enabled', True))
-        trans_row = ttk.Frame(fx_section)
-        trans_row.pack(fill='x', pady=3)
-        ttk.Checkbutton(trans_row, text='启用片段转场(淡入淡出)', variable=trans_var).pack(side='left')
-
-        bgm_var = tk.BooleanVar(value=config.get('bgm_enabled', False))
-        bgm_row = ttk.Frame(fx_section)
-        bgm_row.pack(fill='x', pady=3)
-        ttk.Checkbutton(bgm_row, text='启用背景音乐', variable=bgm_var).pack(side='left')
-        ttk.Label(bgm_row, text='音量:', width=6, anchor='e').pack(side='left', padx=(12, 0))
-        bgm_vol_var = tk.StringVar(value=str(config.get('bgm_volume', 15)))
-        ttk.Entry(bgm_row, textvariable=bgm_vol_var, width=4).pack(side='left', padx=(4, 0))
-        ttk.Label(bgm_row, text='%(1-100)', foreground='gray', font=('', 8)).pack(side='left', padx=(4, 0))
-
         # -- Save button --
         btn_row = ttk.Frame(win)
         btn_row.pack(fill='x', padx=15, pady=(10, 15))
@@ -507,18 +432,19 @@ class App:
         def save(close=True):
             try:
                 c = load_config()
-                c['auto_publish_douyin'] = auto_var.get()
+                c['auto_publish_douyin'] = True
+                c['pub_desc'] = pub_desc_var.get().strip()
                 try:
                     c['publish_interval_minutes'] = int(interval_var.get().strip())
                 except ValueError:
                     c['publish_interval_minutes'] = 120
-                c['rewrite_custom_instruction'] = rewrite_instr_var.get().strip()
-                c['transition_enabled'] = trans_var.get()
-                c['bgm_enabled'] = bgm_var.get()
                 try:
-                    c['bgm_volume'] = int(bgm_vol_var.get().strip())
+                    c['listener_interval_seconds'] = max(5, int(local_poll_var.get().strip()))
                 except ValueError:
-                    c['bgm_volume'] = 15
+                    c['listener_interval_seconds'] = 30
+                c['rewrite_custom_instruction'] = ''
+                c['transition_enabled'] = True
+                c['bgm_enabled'] = False
                 CFG_PATH.write_text(
                     json.dumps(c, ensure_ascii=False, indent=4), encoding='utf-8')
                 msg_lbl.config(text='已保存', foreground='green')
@@ -825,47 +751,18 @@ class App:
     # ----------------------------------------------------------------
     # Step 7: Publish operation
     # ----------------------------------------------------------------
-    def _save_publish_settings(self):
-        """Save publish form settings to config file"""
-        try:
-            config = load_config()
-            config['pub_title'] = self.pub_title_var.get()
-            config['pub_desc'] = self.pub_desc_var.get()
-            config['pub_strategy'] = self.pub_strategy_var.get()
-            CFG_PATH.write_text(
-                json.dumps(config, ensure_ascii=False, indent=4), encoding='utf-8')
-        except Exception:
-            pass
-
-    def _on_strategy_change(self):
-        """Switch publish mode: enable time input when scheduled publish is selected"""
-        if self.pub_strategy_var.get() == 'scheduled':
-            self._sched_entry.config(state='normal')
-        else:
-            self._sched_entry.config(state='disabled')
-            self.pub_schedule_var.set('')
-
     def _step7_prefill_from_pipeline(self):
-        """Pre-fill step 7 publish form after pipeline completion"""
-        try:
-            self.pub_title_var.set('')  # Leave empty = use rewrite title
-            self.pub_desc_var.set('')   # User enters #hashtags manually
-            self.pub_strategy_var.set('immediate')
-            self.pub_schedule_var.set('')
-            self._on_strategy_change()
-        except Exception:
-            pass
+        """Step 7 uses the generated title and settings, so no form prefill is needed."""
+        pass
 
     def _sync_default_cloud_settings(self):
         """Sync common local settings to GitHub Secrets for cloud runs."""
-        self._save_publish_settings()
         cmd = [
             sys.executable,
             str(SRC_DIR / 'tools' / 'sync_cloud_settings.py'),
             '--pub-desc',
             '--auto-publish',
             '--publish-interval',
-            '--rewrite-instruction',
             '--rewrite-template',
         ]
         self._run_cloud_sync_command(cmd, '同步本地配置到云端')
@@ -927,10 +824,9 @@ class App:
             vp = self.run_dir / f'{self.title}--成品.mp4'
             if vp.exists():
                 video_path = str(vp)
-        title = self.pub_title_var.get().strip()
-        desc = self.pub_desc_var.get().strip()
-        strategy = self.pub_strategy_var.get()
-        schedule = self.pub_schedule_var.get().strip()
+        config = load_config()
+        title = self.title
+        desc = config.get('pub_desc', '').strip()
 
         # If title is empty, use step 2 rewrite title
         if not title:
@@ -959,7 +855,7 @@ class App:
 
                 self.log(f'  标题: {title}')
                 self.log(f'  简介: {desc if desc else "(无)"}')
-                self.log(f'  方式: {"立即发布" if strategy == "immediate" else "定时发布"}')
+                self.log('  方式: 立即发布')
                 self.set_status('发布到抖音中...')
 
                 kwargs = dict(
@@ -970,15 +866,6 @@ class App:
                     headless=False,
                     debug=True
                 )
-                if strategy == 'scheduled' and schedule:
-                    # Validate time format, silently fall back to immediate publish if invalid
-                    try:
-                        datetime.strptime(schedule, '%Y-%m-%d %H:%M')
-                        kwargs['publish_strategy'] = 'scheduled'
-                        kwargs['publish_date'] = schedule
-                    except ValueError:
-                        pass  # Format error, fallback to immediate publish
-
                 result = publish_to_douyin(**kwargs)
 
                 if result['success']:
@@ -1341,11 +1228,7 @@ class App:
         else:
             tpl = (CFG_DIR / 'ai生故事模板.txt').read_text(encoding='utf-8-sig')
             learn_ctx = _get_learning_prompt()
-            custom_instr = config.get('rewrite_custom_instruction', '').strip()
             prompt = tpl.rstrip()
-            if custom_instr:
-                prompt += '\n\n## 用户额外要求:\n' + custom_instr
-                self.log('  已加载自定义指令')  # Custom instruction loaded
             if learn_ctx:
                 prompt += '\n\n' + learn_ctx
                 self.log('  已注入学习偏好')  # Learning preference injected
@@ -1777,11 +1660,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     # One-click: Auto publish (called within pipeline)
     # ----------------------------------------------------------------
     def _auto_publish_after_render(self):
-        """Auto-publish after rendering (reads step 7 form settings)"""
+        """Auto-publish after rendering using generated title and saved settings."""
         try:
             config = load_config()
-            if not config.get('auto_publish_douyin', False):
-                return
 
             self.log('')
             self.log('=' * 50)
@@ -1798,11 +1679,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 self.log(f'视频文件不存在: {video_path}')
                 return
 
-            # Read step 7 form settings (unified with step-by-step debug)
-            title = self.pub_title_var.get().strip() or self.title
-            desc = self.pub_desc_var.get().strip()
-            strategy = self.pub_strategy_var.get()
-            schedule = self.pub_schedule_var.get().strip()
+            title = self.title
+            desc = config.get('pub_desc', '').strip()
 
             kwargs = dict(
                 video_path=str(video_path),
@@ -1812,18 +1690,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 headless=True,
                 debug=False
             )
-            # Scheduled publish (fall back to immediate if format is invalid)
-            if strategy == 'scheduled' and schedule:
-                try:
-                    datetime.strptime(schedule, '%Y-%m-%d %H:%M')
-                    kwargs['publish_strategy'] = 'scheduled'
-                    kwargs['publish_date'] = schedule
-                except ValueError:
-                    pass
 
             self.log(f'  标题: {title}')
             self.log(f'  话题: {desc if desc else "(无)"}')
-            self.log(f'  方式: {"定时发布 " + schedule if kwargs.get("publish_strategy") == "scheduled" else "立即发布"}')
+            self.log('  方式: 立即发布')
             self.set_status('自动发布到抖音中...')
 
             result = publish_to_douyin(**kwargs)
