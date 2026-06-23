@@ -7,6 +7,7 @@ Usage: python cli_pipeline.py <douyin_url_or_narration_file>
 import os, sys, json, re, time, shutil, subprocess
 from pathlib import Path
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # Hide subprocess console window
 NW = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
@@ -91,9 +92,12 @@ def build_config():
 
 
 # ============ Logging ============
+BEIJING_TZ = ZoneInfo('Asia/Shanghai')
+
+
 def log(msg):
     """Timestamped logging"""
-    ts = datetime.now().strftime('%H:%M:%S')
+    ts = datetime.now(BEIJING_TZ).strftime('%H:%M:%S')
     print(f"[{ts}] {msg}", flush=True)
 
 

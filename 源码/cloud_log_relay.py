@@ -1,9 +1,12 @@
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 FAILURE_PATTERNS = (
@@ -13,10 +16,20 @@ FAILURE_PATTERNS = (
     "cookie文件已失效",
     "Traceback",
 )
+BEIJING_TZ = ZoneInfo("Asia/Shanghai")
+TIME_PREFIX_RE = re.compile(r"^\[\d{2}:\d{2}:\d{2}\]")
 
 
 def debug_enabled():
     return os.environ.get("SUYING_DEBUG_LOGS", "").lower() == "true"
+
+
+def add_beijing_time(line):
+    text = str(line)
+    if TIME_PREFIX_RE.match(text):
+        return text
+    ts = datetime.now(BEIJING_TZ).strftime("%H:%M:%S")
+    return f"[{ts}] {text}"
 
 
 def post_log(lines, status="running", reset=False):
@@ -32,7 +45,7 @@ def post_log(lines, status="running", reset=False):
         {
             "secret": secret,
             "status": status,
-            "lines": lines,
+            "lines": [add_beijing_time(line) for line in lines],
             "reset": reset,
         },
         ensure_ascii=False,
