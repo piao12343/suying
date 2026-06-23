@@ -23,7 +23,6 @@ SECRET_LABELS = {
     'SUYING_PUB_DESC': '发布话题',
     'SUYING_AUTO_PUBLISH': '自动发布固定开启',
     'SUYING_PUBLISH_INTERVAL_MINUTES': '发布间隔',
-    'SUYING_REWRITE_CUSTOM_INSTRUCTION': '文案改写自定义指令',
     'SUYING_REWRITE_TEMPLATE_TEXT': 'AI改写模板',
     'DOUYIN_COOKIES_JSON': '抖音 Cookie',
 }
@@ -80,7 +79,6 @@ def main():
     parser.add_argument('--pub-desc', action='store_true', help='同步发布话题')
     parser.add_argument('--auto-publish', action='store_true', help='同步自动发布开关')
     parser.add_argument('--publish-interval', action='store_true', help='同步发布间隔')
-    parser.add_argument('--rewrite-instruction', action='store_true', help='同步文案改写自定义指令')
     parser.add_argument('--rewrite-template', action='store_true', help='同步 AI 改写模板全文')
     parser.add_argument('--cookie', action='store_true', help='同步本地已保存的抖音 Cookie')
     args = parser.parse_args()
@@ -89,7 +87,6 @@ def main():
         args.pub_desc,
         args.auto_publish,
         args.publish_interval,
-        args.rewrite_instruction,
         args.rewrite_template,
         args.cookie,
     ]
@@ -109,10 +106,6 @@ def main():
     if args.publish_interval:
         value = str(int(config.get('publish_interval_minutes', 120)))
         set_secret(gh, 'SUYING_PUBLISH_INTERVAL_MINUTES', value)
-
-    if args.rewrite_instruction:
-        set_secret(gh, 'SUYING_REWRITE_CUSTOM_INSTRUCTION',
-                   config.get('rewrite_custom_instruction', ''))
 
     if args.rewrite_template:
         set_secret(gh, 'SUYING_REWRITE_TEMPLATE_TEXT', read_template_text())

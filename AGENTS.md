@@ -24,8 +24,7 @@
 ```text
 suying-github/
 ├── .github/workflows/
-│   ├── suying.yml              # 云端主流程
-│   └── publish-only.yml        # 单独发布流程
+│   └── suying.yml              # 云端主流程
 ├── 源码/
 │   ├── gui.py                  # 本地桌面程序
 │   ├── cli_pipeline.py         # 云端 CLI 流水线

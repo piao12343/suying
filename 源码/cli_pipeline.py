@@ -69,7 +69,6 @@ def build_config():
         'SUYING_PUB_DESC': 'pub_desc',
         'SUYING_AUTO_PUBLISH': 'auto_publish_douyin',
         'SUYING_PUBLISH_INTERVAL_MINUTES': 'publish_interval_minutes',
-        'SUYING_REWRITE_CUSTOM_INSTRUCTION': 'rewrite_custom_instruction',
         'SUYING_REWRITE_TEMPLATE_TEXT': 'rewrite_template_text',
     }
     for env_key, config_key in env_overrides.items():
@@ -251,11 +250,7 @@ class Pipeline:
             else:
                 tpl = (CFG_DIR / 'ai生故事模板.txt').read_text(encoding='utf-8-sig')
             learn_ctx = get_learning_prompt()
-            custom_instr = self.config.get('rewrite_custom_instruction', '').strip()
             prompt = tpl.rstrip()
-            if custom_instr:
-                prompt += '\n\n## 用户额外要求:\n' + custom_instr
-                log('  已加载自定义指令')
             if learn_ctx:
                 prompt += '\n\n' + learn_ctx
                 log('  已注入学习偏好')
@@ -567,40 +562,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             log('    字幕渲染失败, 使用标题版本')
             fo = to
 
-        # 6g: Mix BGM
-        bgm_enabled = self.config.get('bgm_enabled', False)
-        bgm_dir = CFG_DIR / 'bgm'
-        if bgm_enabled and bgm_dir.is_dir():
-            bgm_files = list(bgm_dir.glob('*.mp3')) + list(bgm_dir.glob('*.wav')) + list(bgm_dir.glob('*.ogg'))
-            if bgm_files:
-                import random
-                bgm_file = random.choice(bgm_files)
-                bgm_vol = self.config.get('bgm_volume', 15) / 100.0
-                bgm_out = render_dir / 'final_bgm.mp4'
-                log(f'  [6g] 混入BGM: {bgm_file.name} (音量{int(bgm_vol*100)}%)')
-                try:
-                    r3 = subprocess.run([
-                        ffmpeg, '-y',
-                        '-i', str(fo),
-                        '-stream_loop', '-1', '-i', str(bgm_file),
-                        '-filter_complex',
-                        f'[1:a]volume={bgm_vol},afade=t=out:st={max(tdur-3, 0)}:d=3[bgm];'
-                        f'[0:a][bgm]amix=inputs=2:duration=shortest:dropout_transition=0[aout]',
-                        '-map', '0:v', '-map', '[aout]',
-                        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-                        '-t', str(tdur),
-                        str(bgm_out),
-                    ], capture_output=True, text=True, timeout=300, **NW)
-                    if r3.returncode == 0 and bgm_out.exists():
-                        fo = bgm_out
-                        log('    BGM混入成功')
-                    else:
-                        log(f'    BGM混入失败: {r3.stderr[:100]}')
-                except Exception as e:
-                    log(f'    BGM混入异常: {e}')
-            else:
-                log('  [6g] BGM已启用但 config/bgm/ 目录无音频文件, 跳过')
-
         fd = self.run_dir / f'{self.title}--成品.mp4'
         if fd.exists():
             os.remove(fd)
@@ -668,15 +629,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             log(f'视频文件不存在: {video_path}')
             return
 
-        title = self.config.get('pub_title', '').strip() or self.title
+        title = self.title
         desc = self.config.get('pub_desc', '')
-        strategy = self.config.get('pub_strategy', 'immediate')
-        tags = [t.strip() for t in self.config.get('douyin_tags', '').split(',') if t.strip()]
 
         kwargs = dict(
             video_path=str(video_path),
             title=title[:30],
-            tags=tags,
+            tags=[],
             description=desc,
             headless=True,
             debug=False,
@@ -686,7 +645,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         log(f'  标题: {title[:30]}')
         log(f'  话题: {desc if desc else "(无)"}')
-        log(f'  方式: {strategy}')
+        log('  方式: 立即发布')
 
         result = publish_to_douyin(**kwargs)
 

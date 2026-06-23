@@ -11,8 +11,6 @@
     "video_height": 1920,
     "fps": 30,
     "num_shots": 10,
-    "title_bar_height": 140,
-    "subtitle_font_size": 38,
     "image_search_keywords_map": {
         "公路": "highway road construction",
         "修路": "road construction workers",
@@ -71,10 +69,7 @@
     "listener_interval_seconds": 30,
     "pushplus_token": "",
     "auto_publish_douyin": true,
-    "douyin_tags": "故事,情感,人生",
     "publish_interval_minutes": 120,
     "pub_desc": "#民间故事 #民间传说 #纪实故事 #真实事件 #正能量",
-    "transition_enabled": true,
-    "bgm_enabled": false,
-    "bgm_volume": 15
+    "transition_enabled": true
 }

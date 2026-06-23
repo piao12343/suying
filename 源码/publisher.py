@@ -162,64 +162,6 @@ def publish_to_douyin(video_path, title, tags=None, description=None,
         return {'success': False, 'message': f'发布失败: {e}'}
 
 
-# ============ Extension Stubs ============
-
-def publish_to_xiaohongshu(video_path, title, tags=None, **kwargs):
-    """Publish to Xiaohongshu (stub)"""
-    return {'success': False, 'message': '小红书发布功能尚未实现'}
-
-
-def publish_to_kuaishou(video_path, title, tags=None, **kwargs):
-    """Publish to Kuaishou (stub)"""
-    return {'success': False, 'message': '快手发布功能尚未实现'}
-
-
-def publish_to_bilibili(video_path, title, tags=None, **kwargs):
-    """Publish to Bilibili (stub)"""
-    return {'success': False, 'message': 'B站发布功能尚未实现'}
-
-
-# ============ Unified Publish API ============
-
-PLATFORMS = {
-    'douyin': {'name': '抖音', 'func': publish_to_douyin},
-    'xiaohongshu': {'name': '小红书', 'func': publish_to_xiaohongshu},
-    'kuaishou': {'name': '快手', 'func': publish_to_kuaishou},
-    'bilibili': {'name': 'B站', 'func': publish_to_bilibili},
-}
-
-
-def publish_video(platform, video_path, title, tags=None, **kwargs):
-    """Unified publish API
-
-    Args:
-        platform: platform ID ('douyin', 'xiaohongshu', 'kuaishou', 'bilibili')
-        video_path: video file path
-        title: video title
-        tags: tag list
-        **kwargs: platform-specific params
-
-    Returns:
-        dict: {'success': bool, 'message': str, 'platform': str}
-    """
-    if platform not in PLATFORMS:
-        return {'success': False, 'message': f'不支持的平台: {platform}', 'platform': platform}
-
-    result = PLATFORMS[platform]['func'](video_path, title, tags, **kwargs)
-    result['platform'] = platform
-    return result
-
-
-def get_supported_platforms():
-    """Get list of supported platforms"""
-    return [{'id': k, 'name': v['name']} for k, v in PLATFORMS.items()]
-
-
 if __name__ == '__main__':
-    # Test code
-    print('支持的发布平台:')
-    for p in get_supported_platforms():
-        print(f"  - {p['name']} ({p['id']})")
-
-    print(f'\n抖音登录状态: {check_douyin_login()}')
+    print(f'抖音登录状态: {check_douyin_login()}')
     print(f'Cookie 文件: {DOUYIN_COOKIE_FILE}')

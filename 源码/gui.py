@@ -438,9 +438,7 @@ class App:
                     c['listener_interval_seconds'] = max(5, int(local_poll_var.get().strip()))
                 except ValueError:
                     c['listener_interval_seconds'] = 30
-                c['rewrite_custom_instruction'] = ''
                 c['transition_enabled'] = True
-                c['bgm_enabled'] = False
                 CFG_PATH.write_text(
                     json.dumps(c, ensure_ascii=False, indent=4), encoding='utf-8')
                 msg_lbl.config(text='已保存', foreground='green')
@@ -1597,42 +1595,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if r2.returncode != 0 or not fo.exists():
             self.log('    字幕渲染失败, 使用标题版本')
             fo = to
-
-        # 6g: Mix in background music
-        bgm_enabled = config.get('bgm_enabled', False)
-        bgm_dir = CFG_DIR / 'bgm'
-        if bgm_enabled and bgm_dir.is_dir():
-            bgm_files = list(bgm_dir.glob('*.mp3')) + list(bgm_dir.glob('*.wav')) + list(bgm_dir.glob('*.ogg'))
-            if bgm_files:
-                import random
-                bgm_file = random.choice(bgm_files)
-                bgm_vol = config.get('bgm_volume', 15) / 100.0
-                bgm_out = render_dir / 'final_bgm.mp4'
-                self.log(f'  [6g] 混入BGM: {bgm_file.name} (音量{int(bgm_vol*100)}%)')
-                try:
-                    r3 = subprocess.run([
-                        ffmpeg, '-y',
-                        '-i', str(fo),
-                        '-stream_loop', '-1', '-i', str(bgm_file),
-                        '-filter_complex',
-                        f'[1:a]volume={bgm_vol},afade=t=out:st={max(tdur-3, 0)}:d=3[bgm];'
-                        f'[0:a][bgm]amix=inputs=2:duration=shortest:dropout_transition=0[aout]',
-                        '-map', '0:v', '-map', '[aout]',
-                        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-                        '-t', str(tdur),
-                        str(bgm_out),
-                    ], capture_output=True, text=True, timeout=300, **NW)
-                    if r3.returncode == 0 and bgm_out.exists():
-                        fo = bgm_out
-                        self.log('    BGM混入成功')
-                    else:
-                        self.log(f'    BGM混入失败: {r3.stderr[:100]}')
-                except Exception as e:
-                    self.log(f'    BGM混入异常: {e}')
-            else:
-                self.log('  [6g] BGM已启用但 配置/bgm/ 目录无音频文件, 跳过')  # BGM enabled but no audio files in config/bgm/
-        else:
-            pass  # BGM not enabled or directory does not exist
 
         fd = self.run_dir / f'{self.title}--成品.mp4'
         if fd.exists():
