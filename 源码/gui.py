@@ -8,6 +8,8 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, simpledialog, messagebox
 
+NW = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
+
 # ============ Paths ============
 BASE = Path(__file__).resolve().parent.parent
 SRC_DIR = BASE / '源码'
@@ -402,6 +404,31 @@ class App:
         # Restore state if scheduled publishing was previously selected
         if pub_config.get('pub_strategy') == 'scheduled':
             self._on_strategy_change()
+
+        # Cloud publish shortcuts
+        cloud_frame = ttk.LabelFrame(parent, text='云端发布', padding=(10, 8))
+        cloud_frame.pack(fill='x', padx=10, pady=(12, 0))
+
+        ttk.Label(
+            cloud_frame,
+            text='把本地发布话题、自动发布开关、发布间隔和文案改写指令同步到云端。',
+            foreground='gray',
+            font=('', 8)
+        ).pack(anchor='w', pady=(0, 6))
+
+        cloud_btn_row = ttk.Frame(cloud_frame)
+        cloud_btn_row.pack(fill='x')
+        self.cloud_sync_btn = ttk.Button(
+            cloud_btn_row,
+            text='同步当前配置到云端',
+            command=self._sync_default_cloud_settings,
+        )
+        self.cloud_sync_btn.pack(side='left')
+        ttk.Button(
+            cloud_btn_row,
+            text='刷新 Cookie 并同步云端',
+            command=self._refresh_cookie_and_sync_cloud,
+        ).pack(side='left', padx=(8, 0))
 
     # ----------------------------------------------------------------
     # Settings dialog (Toplevel)
@@ -965,6 +992,68 @@ class App:
             self._on_strategy_change()
         except Exception:
             pass
+
+    def _sync_default_cloud_settings(self):
+        """Sync common local settings to GitHub Secrets for cloud runs."""
+        self._save_publish_settings()
+        cmd = [
+            sys.executable,
+            str(SRC_DIR / 'tools' / 'sync_cloud_settings.py'),
+            '--pub-desc',
+            '--auto-publish',
+            '--publish-interval',
+            '--rewrite-instruction',
+        ]
+        self._run_cloud_sync_command(cmd, '同步当前配置到云端')
+
+    def _refresh_cookie_and_sync_cloud(self):
+        """Launch the existing cookie refresh + cloud sync script."""
+        bat = BASE / '刷新抖音Cookie并同步云端.bat'
+        if not bat.exists():
+            messagebox.showerror('错误', f'未找到脚本: {bat}')
+            return
+        try:
+            os.startfile(str(bat))
+            self.log('已打开刷新 Cookie 并同步云端脚本。')
+        except Exception as e:
+            messagebox.showerror('错误', f'启动失败: {e}')
+
+    def _run_cloud_sync_command(self, cmd, title):
+        """Run a cloud sync command in background and write output to the main log."""
+        btn = getattr(self, 'cloud_sync_btn', None)
+        if btn:
+            btn.config(state='disabled')
+
+        self.log('=' * 50)
+        self.log(f'[云端同步] {title}...')
+
+        def worker():
+            code = 1
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=str(BASE),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    **NW,
+                )
+                for line in proc.stdout:
+                    self.log(line.rstrip())
+                code = proc.wait()
+                if code == 0:
+                    self.log('[云端同步] 同步完成')
+                else:
+                    self.log(f'[云端同步] 同步失败, 退出码: {code}')
+            except Exception as e:
+                self.log(f'[云端同步] 同步失败: {e}')
+            finally:
+                if btn:
+                    self.root.after(0, lambda: btn.config(state='normal'))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _step7_do_publish(self):
         """Step 7: Publish selected video to Douyin"""
@@ -1540,7 +1629,6 @@ class App:
         from video_pipeline import create_kenburns_clip
         config = load_config()
         ffmpeg = config['ffmpeg_path']
-        NW = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
 
         self._auto_save_edits()
 
