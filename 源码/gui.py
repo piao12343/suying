@@ -494,7 +494,7 @@ class App:
         btn_row = ttk.Frame(win)
         btn_row.pack(fill='x', padx=15, pady=(10, 15))
 
-        def save():
+        def save(close=True):
             try:
                 c = load_config()
                 for k, v in s_vars.items():
@@ -519,13 +519,129 @@ class App:
                 CFG_PATH.write_text(
                     json.dumps(c, ensure_ascii=False, indent=4), encoding='utf-8')
                 msg_lbl.config(text='已保存', foreground='green')
-                win.after(1500, win.destroy)
+                if close:
+                    win.after(1500, win.destroy)
+                return True
             except Exception as e:
                 msg_lbl.config(text=f'保存失败: {e}', foreground='red')
+                return False
+
+        def sync_cloud():
+            if save(close=False):
+                self._open_cloud_sync_dialog(win)
 
         ttk.Button(btn_row, text='保存', command=save).pack(side='left')
+        ttk.Button(btn_row, text='同步云端配置', command=sync_cloud).pack(side='left', padx=(8, 0))
         msg_lbl = ttk.Label(btn_row, text='', foreground='green')
         msg_lbl.pack(side='left', padx=(12, 0))
+
+    def _open_cloud_sync_dialog(self, parent=None):
+        """Open dialog for syncing selected local settings to GitHub Secrets."""
+        win = tk.Toplevel(parent or self.root)
+        win.title('同步云端配置')
+        win.geometry('520x430')
+        win.transient(parent or self.root)
+        win.grab_set()
+
+        ttk.Label(
+            win,
+            text='选择要同步到云端 GitHub Secrets 的内容:',
+            padding=(14, 12, 14, 4)
+        ).pack(anchor='w')
+
+        body = ttk.Frame(win, padding=(18, 0, 18, 8))
+        body.pack(fill='x')
+
+        items = [
+            ('pub_desc', '发布话题', '--pub-desc', True),
+            ('auto_publish', '自动发布开关', '--auto-publish', True),
+            ('publish_interval', '发布间隔', '--publish-interval', True),
+            ('rewrite_instruction', '文案改写自定义指令', '--rewrite-instruction', True),
+            ('rewrite_template', 'AI 改写模板', '--rewrite-template', False),
+            ('cookie', '抖音 Cookie（同步本地已保存文件）', '--cookie', False),
+        ]
+        vars_map = {}
+        for key, text, _flag, checked in items:
+            var = tk.BooleanVar(value=checked)
+            ttk.Checkbutton(body, text=text, variable=var).pack(anchor='w', pady=3)
+            vars_map[key] = var
+
+        hint = ttk.Label(
+            body,
+            text='Cookie 过期时, 先用“刷新抖音 Cookie 并同步云端”重新扫码。',
+            foreground='gray',
+            font=('', 8)
+        )
+        hint.pack(anchor='w', pady=(4, 0))
+
+        log_box = scrolledtext.ScrolledText(win, height=9, state='disabled', font=('Consolas', 9))
+        log_box.pack(fill='both', expand=True, padx=14, pady=(6, 8))
+
+        def append_log(text):
+            log_box.configure(state='normal')
+            log_box.insert('end', text)
+            log_box.see('end')
+            log_box.configure(state='disabled')
+
+        btn_row = ttk.Frame(win, padding=(14, 0, 14, 12))
+        btn_row.pack(fill='x')
+
+        sync_btn = ttk.Button(btn_row, text='开始同步')
+        sync_btn.pack(side='left')
+
+        def refresh_cookie():
+            bat = BASE / '刷新抖音Cookie并同步云端.bat'
+            if not bat.exists():
+                messagebox.showerror('错误', f'未找到脚本: {bat}')
+                return
+            try:
+                os.startfile(str(bat))
+            except Exception as e:
+                messagebox.showerror('错误', f'启动失败: {e}')
+
+        ttk.Button(btn_row, text='刷新抖音 Cookie 并同步云端', command=refresh_cookie).pack(side='left', padx=(8, 0))
+        ttk.Button(btn_row, text='关闭', command=win.destroy).pack(side='right')
+
+        def run_sync():
+            flags = []
+            for key, _text, flag, _checked in items:
+                if vars_map[key].get():
+                    flags.append(flag)
+            if not flags:
+                messagebox.showwarning('提示', '请至少选择一项要同步的内容。')
+                return
+
+            sync_btn.config(state='disabled')
+            append_log('开始同步云端配置...\n')
+
+            def worker():
+                cmd = [sys.executable, str(SRC_DIR / 'tools' / 'sync_cloud_settings.py')] + flags
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        cwd=str(BASE),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding='utf-8',
+                        errors='replace',
+                        **NW,
+                    )
+                    for line in proc.stdout:
+                        win.after(0, append_log, line)
+                    code = proc.wait()
+                    if code == 0:
+                        win.after(0, append_log, '同步完成。\n')
+                    else:
+                        win.after(0, append_log, f'同步失败, 退出码: {code}\n')
+                except Exception as e:
+                    win.after(0, append_log, f'同步失败: {e}\n')
+                finally:
+                    win.after(0, lambda: sync_btn.config(state='normal'))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        sync_btn.config(command=run_sync)
 
     # ----------------------------------------------------------------
     # Workspace switching

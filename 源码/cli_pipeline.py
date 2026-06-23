@@ -43,7 +43,19 @@ def build_config():
     else:
         config = {}
 
-    # Env var -> config mapping
+    # Cloud-specific defaults (from cloud_settings.json, only applies in GitHub Actions)
+    cloud_settings_path = CFG_DIR / 'cloud_settings.json'
+    if cloud_settings_path.exists():
+        try:
+            cloud_cfg = json.loads(cloud_settings_path.read_text(encoding='utf-8'))
+            for key in ('auto_publish_douyin', 'publish_interval_minutes', 'poll_interval_minutes'):
+                if key in cloud_cfg:
+                    config[key] = cloud_cfg[key]
+            log('已加载云端配置: cloud_settings.json')
+        except Exception as e:
+            log(f'云端配置加载失败: {e}')
+
+    # Env var -> config mapping. GitHub Secrets take final precedence.
     env_overrides = {
         'SUYING_OPENROUTER_API_KEY': 'openrouter_api_key',
         'SUYING_PEXELS_API_KEY': 'pexels_api_key',
@@ -55,26 +67,22 @@ def build_config():
         'SUYING_OPENROUTER_MODEL': 'openrouter_model',
         'SUYING_PUB_DESC': 'pub_desc',
         'SUYING_AUTO_PUBLISH': 'auto_publish_douyin',
+        'SUYING_PUBLISH_INTERVAL_MINUTES': 'publish_interval_minutes',
+        'SUYING_REWRITE_CUSTOM_INSTRUCTION': 'rewrite_custom_instruction',
+        'SUYING_REWRITE_TEMPLATE_TEXT': 'rewrite_template_text',
     }
     for env_key, config_key in env_overrides.items():
         val = os.environ.get(env_key)
         if val is not None:
             if config_key == 'auto_publish_douyin':
                 config[config_key] = val.lower() == 'true'
+            elif config_key == 'publish_interval_minutes':
+                try:
+                    config[config_key] = int(val)
+                except ValueError:
+                    log(f'{env_key} 不是有效数字, 已忽略')
             else:
                 config[config_key] = val
-
-    # Cloud-specific overrides (from cloud_settings.json, only applies in GitHub Actions)
-    cloud_settings_path = CFG_DIR / 'cloud_settings.json'
-    if cloud_settings_path.exists():
-        try:
-            cloud_cfg = json.loads(cloud_settings_path.read_text(encoding='utf-8'))
-            for key in ('auto_publish_douyin', 'publish_interval_minutes', 'poll_interval_minutes'):
-                if key in cloud_cfg:
-                    config[key] = cloud_cfg[key]
-            log('已加载云端配置: cloud_settings.json')
-        except Exception as e:
-            log(f'云端配置加载失败: {e}')
 
     # ffmpeg path: env var > system PATH
     config['ffmpeg_path'] = os.environ.get('FFMPEG_PATH', config.get('ffmpeg_path', 'ffmpeg'))
@@ -233,7 +241,11 @@ class Pipeline:
             title, narration = tm.group(1).strip(), bm.group(1).strip()
             log('  已有格式标记, 跳过改写')
         else:
-            tpl = (CFG_DIR / 'ai生故事模板.txt').read_text(encoding='utf-8-sig')
+            tpl = self.config.get('rewrite_template_text')
+            if tpl:
+                log('  已加载云端 AI 改写模板')
+            else:
+                tpl = (CFG_DIR / 'ai生故事模板.txt').read_text(encoding='utf-8-sig')
             learn_ctx = get_learning_prompt()
             custom_instr = self.config.get('rewrite_custom_instruction', '').strip()
             prompt = tpl.rstrip()
