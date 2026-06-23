@@ -78,8 +78,8 @@ export default {
         });
       }
 
-      // 后台触发 GitHub Actions workflow (不阻塞响应)
-      ctx.waitUntil(triggerGitHubWorkflow(env));
+      // 如果没有流水线在运行, 启动一个; 否则只入队等待
+      ctx.waitUntil(ensureWorkflowRunning(env, debugLogsEnabled));
 
       return jsonResponse({
         ok: true,
@@ -119,7 +119,7 @@ export default {
       return jsonResponse({ ok: true, ...log });
     }
 
-    // ---------- API: 轮询取链接 (保留兼容, 不再作为主触发方式) ----------
+    // ---------- API: 轮询取队首链接 ----------
     if (url.pathname === '/api/poll' && request.method === 'GET') {
       const secret = url.searchParams.get('secret') || '';
       if (SECRET && secret !== SECRET) {
@@ -128,11 +128,33 @@ export default {
 
       const pendingRaw = await env.LINKS.get('pending');
       const pending = pendingRaw ? JSON.parse(pendingRaw) : [];
+      if (!pending.length) {
+        await env.LINKS.put('running', 'false');
+        return jsonResponse({ links: [] });
+      }
 
-      // 取走全部, 清空队列
-      await env.LINKS.put('pending', '[]');
+      const current = pending.shift();
+      await env.LINKS.put('pending', JSON.stringify(pending));
+      await env.LINKS.put('running', 'true', { expirationTtl: 21600 });
 
-      return jsonResponse({ links: pending });
+      const intervalMinutes = Number(url.searchParams.get('publish_interval') || '120');
+      const schedule = await reservePublishSchedule(env, intervalMinutes);
+      current.publish_strategy = schedule.strategy;
+      current.publish_date = schedule.publishDate;
+
+      return jsonResponse({ links: [current], queueLength: pending.length });
+    }
+
+    // ---------- API: 当前任务完成, 继续触发下一条 ----------
+    if (url.pathname === '/api/done' && request.method === 'POST') {
+      const body = await request.json();
+      const secret = body.secret || '';
+      if (SECRET && secret !== SECRET) {
+        return jsonResponse({ error: '密码错误' }, 403);
+      }
+      await env.LINKS.put('running', 'false');
+      ctx.waitUntil(ensureWorkflowRunning(env, debugLogsEnabled));
+      return jsonResponse({ ok: true });
     }
 
     return new Response('404', { status: 404 });
@@ -146,7 +168,7 @@ async function triggerGitHubWorkflow(env) {
   const repo = env.GITHUB_REPO;
   if (!token || !repo) {
     console.log('GitHub 触发跳过: 未配置 GITHUB_TOKEN 或 GITHUB_REPO');
-    return;
+    return false;
   }
   try {
     const resp = await fetch(
@@ -164,13 +186,61 @@ async function triggerGitHubWorkflow(env) {
     );
     if (resp.ok) {
       console.log('GitHub workflow 触发成功');
+      return true;
     } else {
       const text = await resp.text();
       console.log(`GitHub workflow 触发失败: ${resp.status} ${text}`);
+      return false;
     }
   } catch (e) {
     console.log(`GitHub workflow 触发异常: ${e.message}`);
+    return false;
   }
+}
+
+async function ensureWorkflowRunning(env, debugLogsEnabled = false) {
+  const pendingRaw = await env.LINKS.get('pending');
+  const pending = pendingRaw ? JSON.parse(pendingRaw) : [];
+  if (!pending.length) {
+    await env.LINKS.put('running', 'false');
+    return;
+  }
+
+  const running = await env.LINKS.get('running');
+  if (running === 'true') {
+    if (debugLogsEnabled) {
+      await writeCurrentLog(env, {
+        status: 'waiting',
+        lines: [`队列已有任务运行中, 当前排队 ${pending.length} 条。`],
+        reset: false,
+      });
+    }
+    return;
+  }
+
+  await env.LINKS.put('running', 'true', { expirationTtl: 21600 });
+  const triggered = await triggerGitHubWorkflow(env);
+  if (!triggered) {
+    await env.LINKS.put('running', 'false');
+  }
+}
+
+async function reservePublishSchedule(env, intervalMinutes) {
+  const intervalMs = Math.max(0, intervalMinutes) * 60 * 1000;
+  const now = Date.now();
+  const raw = await env.LINKS.get('next_publish_time');
+  const next = raw ? Date.parse(raw) : NaN;
+
+  if (!intervalMs || !Number.isFinite(next) || next <= now) {
+    const following = new Date(now + intervalMs).toISOString();
+    await env.LINKS.put('next_publish_time', following);
+    return { strategy: 'immediate', publishDate: '' };
+  }
+
+  const publishDate = new Date(next).toISOString();
+  const following = new Date(next + intervalMs).toISOString();
+  await env.LINKS.put('next_publish_time', following);
+  return { strategy: 'scheduled', publishDate };
 }
 
 // ---- 工具函数 ----

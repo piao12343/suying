@@ -173,7 +173,7 @@ class Pipeline:
         self.cover_portrait_path = None
         self.cover_landscape_path = None
 
-    def run(self, douyin_input):
+    def run(self, douyin_input, publish_strategy=None, publish_date=None):
         """Run full 7-step pipeline"""
         success = False
         try:
@@ -183,7 +183,7 @@ class Pipeline:
             self.step4_search()
             self.step5_tts()
             self.step6_render()
-            self.step7_publish()
+            self.step7_publish(publish_strategy=publish_strategy, publish_date=publish_date)
             success = True
         except Exception as e:
             log(f'流水线错误: {e}')
@@ -631,7 +631,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             log(f'  封面截取失败(不影响发布): {e}')
 
     # -------- Step 7: Publish to Douyin --------
-    def step7_publish(self):
+    def step7_publish(self, publish_strategy=None, publish_date=None):
         if not self.config.get('auto_publish_douyin', False):
             log('自动发布未启用, 跳过')
             return
@@ -659,12 +659,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         title = self.title
         desc = self.config.get('pub_desc', '')
+        publish_strategy = publish_strategy or self.config.get('pub_strategy', 'immediate')
+        if publish_strategy not in ('immediate', 'scheduled'):
+            publish_strategy = 'immediate'
+
+        parsed_publish_date = None
+        if publish_strategy == 'scheduled' and publish_date:
+            try:
+                parsed_publish_date = datetime.fromisoformat(
+                    str(publish_date).replace('Z', '+00:00')
+                ).astimezone(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None)
+            except Exception as e:
+                log(f'  定时发布时间解析失败, 改为立即发布: {e}')
+                publish_strategy = 'immediate'
 
         kwargs = dict(
             video_path=str(video_path),
             title=title[:30],
             tags=[],
             description=desc,
+            publish_strategy=publish_strategy,
+            publish_date=parsed_publish_date,
             headless=True,
             debug=False,
             thumbnail_portrait_path=self.cover_portrait_path,
@@ -673,7 +688,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         log(f'  标题: {title[:30]}')
         log(f'  话题: {desc if desc else "(无)"}')
-        log('  方式: 立即发布')
+        if publish_strategy == 'scheduled' and parsed_publish_date:
+            local_dt = parsed_publish_date.astimezone()
+            log(f'  方式: 定时发布 {local_dt.strftime("%Y-%m-%d %H:%M:%S")}')
+        else:
+            log('  方式: 立即发布')
 
         result = publish_to_douyin(**kwargs)
 
@@ -757,18 +776,14 @@ def main():
             sys.exit(0)
         log(f'获取到 {len(links)} 条待处理链接')
 
-        # Publish interval control
-        interval_min = config.get('publish_interval_minutes', 120)
+        publish_strategy = os.environ.get('SUYING_PUBLISH_STRATEGY', 'immediate')
+        publish_date = os.environ.get('SUYING_PUBLISH_DATE', '')
 
         pipeline = Pipeline(config)
         for i, link in enumerate(links):
-            if i > 0 and interval_min > 0:
-                wait_sec = interval_min * 60
-                log(f'发布间隔: 等待 {interval_min} 分钟...')
-                time.sleep(wait_sec)
             log(f'\n{"="*60}')
             log(f'处理第 {i+1}/{len(links)} 条: {link}')
-            pipeline.run(link)
+            pipeline.run(link, publish_strategy=publish_strategy, publish_date=publish_date)
             # Reset pipeline state after each link
             if i < len(links) - 1:
                 pipeline = Pipeline(config)

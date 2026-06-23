@@ -62,14 +62,23 @@ jobs:
               exit(0)
 
           try:
-              resp = requests.get(f'{url}/api/poll', params={'secret': secret}, timeout=15)
+              interval = os.environ.get('SUYING_PUBLISH_INTERVAL_MINUTES', '120')
+              resp = requests.get(
+                  f'{url}/api/poll',
+                  params={'secret': secret, 'publish_interval': interval},
+                  timeout=15,
+              )
               if resp.status_code == 200:
                   data = resp.json()
-                  links = [i['link'] for i in data.get('links', []) if i.get('link')]
+                  items = [i for i in data.get('links', []) if i.get('link')]
+                  links = [i['link'] for i in items]
                   if links:
+                      item = items[0]
                       with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                           f.write('has_work=true\n')
                           f.write('links=' + json.dumps(links) + '\n')
+                          f.write('publish_strategy=' + str(item.get('publish_strategy', 'immediate')) + '\n')
+                          f.write('publish_date=' + str(item.get('publish_date', '')) + '\n')
                   else:
                       with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                           f.write('has_work=false\n')
@@ -172,6 +181,8 @@ jobs:
           FFMPEG_PATH: /usr/bin/ffmpeg
           SAU_DIR: ${{ github.workspace }}/配置/social-auto-upload
           SUYING_PENDING_LINKS: ${{ steps.poll.outputs.links }}
+          SUYING_PUBLISH_STRATEGY: ${{ steps.poll.outputs.publish_strategy }}
+          SUYING_PUBLISH_DATE: ${{ steps.poll.outputs.publish_date }}
         run: |
           set +e
           set -o pipefail
@@ -205,6 +216,21 @@ jobs:
           fi
           gh secret set DOUYIN_COOKIES_JSON --repo "${{ github.repository }}" < 配置/cookies/douyin_creator.json
           python 源码/cloud_log_relay.py --line "抖音 cookie 已回写到 GitHub Secret。"
+
+      - name: Mark queue item done
+        if: steps.poll.outputs.has_work == 'true' && always()
+        run: |
+          pip install requests --quiet
+          python -c "
+          import os, requests
+          url = os.environ.get('SUYING_LISTENER_WORKER_URL', '').rstrip('/')
+          secret = os.environ.get('SUYING_LISTENER_SECRET', '')
+          if url and secret:
+              try:
+                  requests.post(f'{url}/api/done', json={'secret': secret}, timeout=15)
+              except Exception as e:
+                  print(f'done notify failed: {e}')
+          "
 
       - name: Upload artifacts
         if: steps.poll.outputs.has_work == 'true' && always()
