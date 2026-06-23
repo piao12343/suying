@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 
+NW = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CFG_DIR = PROJECT_ROOT / '配置'
 CONFIG_PATH = CFG_DIR / 'config.json'
@@ -22,7 +23,7 @@ GITHUB_REPO = 'piao12343/suying'
 SECRET_LABELS = {
     'SUYING_PUB_DESC': '发布话题',
     'SUYING_AUTO_PUBLISH': '自动发布固定开启',
-    'SUYING_PUBLISH_INTERVAL_MINUTES': '发布间隔',
+    'SUYING_PUBLISH_INTERVAL_MINUTES': '定时发布间隔',
     'SUYING_REWRITE_TEMPLATE_TEXT': 'AI改写模板',
     'DOUYIN_COOKIES_JSON': '抖音 Cookie',
 }
@@ -49,6 +50,7 @@ def set_secret(gh, name, value):
     result = subprocess.run(
         [gh, 'secret', 'set', name, '-R', GITHUB_REPO],
         input=data,
+        **NW,
     )
     if result.returncode != 0:
         raise RuntimeError(f'同步失败: {SECRET_LABELS.get(name, name)}')
