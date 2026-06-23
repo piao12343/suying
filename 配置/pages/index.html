@@ -32,7 +32,6 @@ a{color:#4a90d9;font-weight:600}
   <p id="status"></p>
 </div>
 <script>
-const WORKER_URL = 'https://suying.313833815.workers.dev';
 const SECRET = new URLSearchParams(location.search).get('s') || '';
 
 async function submit(){
@@ -41,7 +40,7 @@ async function submit(){
   if(!link){st.textContent='请先粘贴链接';st.className='error';return}
   st.textContent='提交中...';st.className='';
   try{
-    const r = await fetch(WORKER_URL + '/api/submit',{
+    const r = await fetch('/api/submit',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({link:link,secret:SECRET})
@@ -49,8 +48,7 @@ async function submit(){
     const d = await r.json();
     if(d.ok){
       if(d.logUrl){
-        const logUrl = d.logUrl.startsWith('http') ? d.logUrl : WORKER_URL + d.logUrl;
-        st.innerHTML='提交成功, 正在自动生成视频...<br><a href="'+logUrl+'">查看云端日志</a>';
+        st.innerHTML='提交成功, 正在自动生成视频...<br><a href="'+d.logUrl+'">查看云端日志</a>';
       }else{
         st.textContent='提交成功, 正在自动生成视频...';
       }
