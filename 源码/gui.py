@@ -364,7 +364,7 @@ class App:
         win.title('设置')
         # Center on main window
         win.update_idletasks()
-        pw, ph = 560, 440
+        pw, ph = 520, 360
         rx = self.root.winfo_x()
         ry = self.root.winfo_y()
         rw = self.root.winfo_width()
@@ -386,8 +386,28 @@ class App:
         ttk.Label(local_poll_row, text='本地监听轮询间隔:', width=18, anchor='e').pack(side='left')
         local_poll_var = tk.StringVar(value=str(config.get('listener_interval_seconds', 60)))
         ttk.Entry(local_poll_row, textvariable=local_poll_var, width=8).pack(side='left', padx=(6, 4))
-        ttk.Label(local_poll_row, text='秒，仅本地远程监听使用，云端不用',
+        ttk.Label(local_poll_row, text='秒，仅本地监听',
                   foreground='gray', font=('', 8)).pack(side='left', padx=(4, 0))
+
+        local_msg_lbl = ttk.Label(local_poll_row, text='', foreground='green')
+
+        def save_local_listener():
+            try:
+                c = load_config()
+                try:
+                    c['listener_interval_seconds'] = max(5, int(local_poll_var.get().strip()))
+                except ValueError:
+                    c['listener_interval_seconds'] = 30
+                CFG_PATH.write_text(
+                    json.dumps(c, ensure_ascii=False, indent=4), encoding='utf-8')
+                local_msg_lbl.config(text='已保存', foreground='green')
+                return True
+            except Exception as e:
+                local_msg_lbl.config(text=f'保存失败: {e}', foreground='red')
+                return False
+
+        ttk.Button(local_poll_row, text='保存', command=save_local_listener, width=6).pack(side='left', padx=(8, 0))
+        local_msg_lbl.pack(side='left', padx=(8, 0))
 
         # -- Publish settings --
         pub_section = ttk.LabelFrame(win, text='发布配置', padding=(12, 8))
@@ -434,10 +454,6 @@ class App:
                     c['publish_interval_minutes'] = int(interval_var.get().strip())
                 except ValueError:
                     c['publish_interval_minutes'] = 120
-                try:
-                    c['listener_interval_seconds'] = max(5, int(local_poll_var.get().strip()))
-                except ValueError:
-                    c['listener_interval_seconds'] = 30
                 c['transition_enabled'] = True
                 CFG_PATH.write_text(
                     json.dumps(c, ensure_ascii=False, indent=4), encoding='utf-8')
