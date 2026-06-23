@@ -9,6 +9,7 @@ existing Suying Pages endpoint.
 import json
 import queue
 import re
+import os
 import threading
 import time
 import tkinter as tk
@@ -32,11 +33,19 @@ COLLECTOR_DIR = CACHE_DIR / 'story_collector'
 PROFILE_DIR = COLLECTOR_DIR / 'douyin_profile'
 CANDIDATES_PATH = CACHE_DIR / 'story_collector_candidates.json'
 HISTORY_PATH = CACHE_DIR / 'story_collector_history.json'
+PREFERENCES_PATH = CACHE_DIR / 'story_collector_preferences.json'
+CONFIG_PATH = PROJECT_ROOT / '配置' / 'story_collector_config.json'
 
 SUBMIT_API = 'https://suying-link.pages.dev/api/submit'
 SUBMIT_SECRET = 'wang5201314@'
 
-SEARCH_KEYWORDS = [
+DEFAULT_CONFIG = {
+    'target_count': 10,
+    'min_duration_seconds': 60,
+    'max_duration_seconds': 300,
+    'min_likes': 0,
+    'min_score': 10,
+    'search_keywords': [
     '婆媳故事',
     '家庭伦理故事',
     '情感故事',
@@ -48,18 +57,23 @@ SEARCH_KEYWORDS = [
     '房子养老',
     '彩礼婚姻',
     '社会现象故事',
-]
-
-STYLE_WORDS = [
+    ],
+    'prefer_words': [
     '儿媳', '婆婆', '母亲', '父亲', '妻子', '丈夫', '媳妇', '老人',
     '后妈', '继子', '房子', '彩礼', '养老', '报恩', '复仇', '真相',
     '冤枉', '离家', '车票', '一碗', '十三年', '家庭', '亲情',
-]
-
-BAD_WORDS = [
+    ],
+    'block_words': [
     '直播', '带货', '商品', '同款', '教程', '剪辑', '影视', '电影',
     '电视剧', '短剧', '音乐', '舞蹈', '游戏',
-]
+    ],
+}
+
+DEFAULT_PREFERENCES = {
+    'liked_words': {},
+    'skipped_words': {},
+    'keyword_stats': {},
+}
 
 
 @dataclass
@@ -90,6 +104,30 @@ def load_json(path, default):
 def save_json(path, data):
     ensure_dirs()
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def load_config():
+    config = DEFAULT_CONFIG.copy()
+    file_config = load_json(CONFIG_PATH, {})
+    if isinstance(file_config, dict):
+        for key, value in file_config.items():
+            if key in config:
+                config[key] = value
+    return config
+
+
+def load_preferences():
+    prefs = load_json(PREFERENCES_PATH, DEFAULT_PREFERENCES.copy())
+    if not isinstance(prefs, dict):
+        return DEFAULT_PREFERENCES.copy()
+    for key, default in DEFAULT_PREFERENCES.items():
+        if key not in prefs or not isinstance(prefs[key], dict):
+            prefs[key] = default.copy()
+    return prefs
+
+
+def save_preferences(prefs):
+    save_json(PREFERENCES_PATH, prefs)
 
 
 def normalize_url(url):
@@ -129,23 +167,30 @@ def parse_duration(text):
     return parts[0] * 60 + parts[1]
 
 
-def score_candidate(title, likes=0, duration_seconds=0):
+def score_candidate(title, likes=0, duration_seconds=0, config=None, prefs=None, keyword=''):
+    config = config or DEFAULT_CONFIG
+    prefs = prefs or DEFAULT_PREFERENCES
     score = 0
     reasons = []
 
-    for word in STYLE_WORDS:
+    for word in config.get('block_words', []):
+        if word and word in title:
+            return -999, '屏蔽词:' + word
+
+    min_likes = int(config.get('min_likes', 0) or 0)
+    if min_likes and likes and likes < min_likes:
+        return -999, f'点赞低于{min_likes}'
+
+    for word in config.get('prefer_words', []):
         if word in title:
             score += 8
             reasons.append(word)
 
-    for word in BAD_WORDS:
-        if word in title:
-            score -= 20
-            reasons.append('避开:' + word)
-
-    if 60 <= duration_seconds <= 300:
+    min_duration = int(config.get('min_duration_seconds', 60) or 0)
+    max_duration = int(config.get('max_duration_seconds', 300) or 0)
+    if duration_seconds and min_duration <= duration_seconds <= max_duration:
         score += 25
-        reasons.append('1-5分钟')
+        reasons.append('时长合适')
     elif duration_seconds:
         score -= 15
         reasons.append('时长不合适')
@@ -166,6 +211,25 @@ def score_candidate(title, likes=0, duration_seconds=0):
     if len(title) >= 6:
         score += 5
 
+    liked_words = prefs.get('liked_words', {})
+    skipped_words = prefs.get('skipped_words', {})
+    for word in extract_learning_words(title, config):
+        like_count = int(liked_words.get(word, 0) or 0)
+        skip_count = int(skipped_words.get(word, 0) or 0)
+        delta = min(like_count * 3, 18) - min(skip_count, 8)
+        if delta:
+            score += delta
+            reasons.append(f'偏好{word}:{delta:+d}')
+
+    keyword_stats = prefs.get('keyword_stats', {}).get(keyword, {})
+    selected = int(keyword_stats.get('selected', 0) or 0)
+    shown = int(keyword_stats.get('shown', 0) or 0)
+    if shown >= 3:
+        rate_bonus = round((selected / shown) * 12)
+        if rate_bonus:
+            score += rate_bonus
+            reasons.append(f'关键词偏好+{rate_bonus}')
+
     return score, '、'.join(reasons)
 
 
@@ -181,12 +245,28 @@ def load_history_urls():
     return urls
 
 
+def extract_learning_words(title, config):
+    words = []
+    for word in config.get('prefer_words', []):
+        if word and word in title:
+            words.append(word)
+    if words:
+        return words
+
+    for word in re.findall(r'[\u4e00-\u9fff]{2,4}', title):
+        if word not in config.get('block_words', []):
+            words.append(word)
+    return words[:8]
+
+
 class DouyinCollector:
     def __init__(self, log):
         self.log = log
         self.playwright = None
         self.context = None
         self.page = None
+        self.config = load_config()
+        self.preferences = load_preferences()
 
     def start(self, headless=False):
         if sync_playwright is None:
@@ -222,12 +302,14 @@ class DouyinCollector:
             self.log(f'打开抖音失败: {e}')
 
     def collect(self, target_count=10):
+        self.config = load_config()
+        self.preferences = load_preferences()
         page = self.start(headless=False)
         history_urls = load_history_urls()
         seen = set()
         results = []
 
-        for keyword in SEARCH_KEYWORDS:
+        for keyword in self.config.get('search_keywords', []):
             if len(results) >= target_count:
                 break
             self.log(f'搜索: {keyword}')
@@ -273,8 +355,10 @@ class DouyinCollector:
 
             likes = parse_count(raw_title)
             duration = parse_duration(raw_title)
-            score, reason = score_candidate(title, likes, duration)
-            if score < 10:
+            score, reason = score_candidate(
+                title, likes, duration, self.config, self.preferences, keyword
+            )
+            if score < int(self.config.get('min_score', 10) or 10):
                 continue
 
             seen.add(url)
@@ -327,6 +411,28 @@ def submit_link(link):
     return data
 
 
+def learn_from_review(candidates, selected_indexes, config):
+    prefs = load_preferences()
+    liked_words = prefs.setdefault('liked_words', {})
+    skipped_words = prefs.setdefault('skipped_words', {})
+    keyword_stats = prefs.setdefault('keyword_stats', {})
+    selected_indexes = set(selected_indexes)
+
+    for idx, candidate in enumerate(candidates):
+        selected = idx in selected_indexes
+        stats = keyword_stats.setdefault(candidate.keyword, {'shown': 0, 'selected': 0})
+        stats['shown'] = int(stats.get('shown', 0) or 0) + 1
+        if selected:
+            stats['selected'] = int(stats.get('selected', 0) or 0) + 1
+
+        words = extract_learning_words(candidate.title, config)
+        target = liked_words if selected else skipped_words
+        for word in words:
+            target[word] = int(target.get(word, 0) or 0) + (2 if selected else 1)
+
+    save_preferences(prefs)
+
+
 class StoryCollectorApp:
     def __init__(self, root):
         self.root = root
@@ -336,6 +442,7 @@ class StoryCollectorApp:
         self.ui_queue = queue.Queue()
         self.browser_queue = queue.Queue()
         self.collector = DouyinCollector(self.log)
+        self.config = load_config()
         self.candidates = []
         self.check_vars = {}
         self.browser_thread = threading.Thread(target=self.browser_worker, daemon=True)
@@ -352,9 +459,11 @@ class StoryCollectorApp:
 
         ttk.Button(top, text='打开抖音登录', command=self.open_login).pack(side='left')
         ttk.Label(top, text='采集数量').pack(side='left', padx=(16, 4))
-        self.count_var = tk.IntVar(value=10)
+        self.count_var = tk.IntVar(value=int(self.config.get('target_count', 10) or 10))
         ttk.Spinbox(top, from_=1, to=30, textvariable=self.count_var, width=6).pack(side='left')
         ttk.Button(top, text='开始采集', command=self.collect).pack(side='left', padx=8)
+        ttk.Button(top, text='打开规则配置', command=self.open_config).pack(side='left')
+        ttk.Button(top, text='重置学习偏好', command=self.reset_preferences).pack(side='left', padx=4)
         ttk.Button(top, text='全选', command=lambda: self.set_all(True)).pack(side='left', padx=(16, 4))
         ttk.Button(top, text='取消全选', command=lambda: self.set_all(False)).pack(side='left')
         ttk.Button(top, text='提交选中链接', command=self.submit_selected).pack(side='right')
@@ -452,8 +561,21 @@ class StoryCollectorApp:
         self.browser_queue.put(('open_login', None))
 
     def collect(self):
+        self.config = load_config()
         target_count = int(self.count_var.get() or 10)
         self.browser_queue.put(('collect', target_count))
+
+    def open_config(self):
+        ensure_dirs()
+        if not CONFIG_PATH.exists():
+            save_json(CONFIG_PATH, DEFAULT_CONFIG)
+        os.startfile(str(CONFIG_PATH))
+
+    def reset_preferences(self):
+        if not messagebox.askyesno('确认重置', '确定清空本地学习偏好吗?'):
+            return
+        save_preferences(DEFAULT_PREFERENCES.copy())
+        self.log('已重置学习偏好。')
 
     def submit_selected(self):
         selected = [c for i, c in enumerate(self.candidates) if self.check_vars.get(i, False)]
@@ -462,6 +584,9 @@ class StoryCollectorApp:
             return
         if not messagebox.askyesno('确认提交', f'将提交 {len(selected)} 条链接到云端并触发生成/发布, 是否继续?'):
             return
+        selected_indexes = [i for i, c in enumerate(self.candidates) if self.check_vars.get(i, False)]
+        learn_from_review(self.candidates, selected_indexes, load_config())
+        self.log('已学习本次筛选偏好, 下次采集会加权排序。')
 
         def worker():
             history = load_json(HISTORY_PATH, {'submitted': [], 'skipped': []})
