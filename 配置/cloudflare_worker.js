@@ -338,7 +338,6 @@ async function refreshLog(){
     document.getElementById('status').textContent = d.status || 'unknown';
     document.getElementById('meta').textContent = d.updatedAt ? ('最后更新: ' + new Date(d.updatedAt).toLocaleString()) : '';
     document.getElementById('log').textContent = (d.lines || []).join('\\n');
-    window.scrollTo(0, document.body.scrollHeight);
   }catch(e){
     document.getElementById('status').textContent = '网络错误';
     document.getElementById('log').textContent = String(e);
