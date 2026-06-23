@@ -27,10 +27,11 @@ def patch():
 
     # ── 步骤 1: 视频上传成功后额外等 5 秒 ──
     marker1 = 'douyin_logger.success(_msg("\U0001f973", "\u89c6\u9891\u5df2\u7ecf\u4f20\u5b8c\u5566"))'
-    if marker1 in code:
-        code = code.replace(
-            marker1,
-            marker1 + '\n                    await asyncio.sleep(5)')
+    marker1_patched = marker1 + '\n                    await asyncio.sleep(5)'
+    if marker1_patched in code:
+        print('[OK] step1: 5s sleep after video upload already patched')
+    elif marker1 in code:
+        code = code.replace(marker1, marker1_patched, 1)
         print('[OK] step1: added 5s sleep after video upload')
     else:
         print('[FAIL] step1: marker not found')
@@ -58,7 +59,9 @@ def patch():
             detach_line_idx = i
             break
 
-    if click_line_idx is not None and detach_line_idx is not None:
+    if 'cover_locator.is_visible()' in code and 'dy-creator-content-modal-wrap' in code:
+        print('[OK] step3: JS force-remove cover modal already patched')
+    elif click_line_idx is not None and detach_line_idx is not None:
         # 检测缩进
         indent = len(lines[click_line_idx]) - len(lines[click_line_idx].lstrip())
         pad = ' ' * indent

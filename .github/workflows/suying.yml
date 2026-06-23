@@ -119,7 +119,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-chromium-v1
+          key: browser-${{ runner.os }}-chromium-v2
+          restore-keys: browser-${{ runner.os }}-
+
+      - name: Cache social-auto-upload
+        if: steps.poll.outputs.has_work == 'true'
+        uses: actions/cache@v4
+        with:
+          path: 配置/social-auto-upload
+          key: sau-${{ runner.os }}-${{ hashFiles('源码/cloud_patch_sau.py') }}-v1
+          restore-keys: sau-${{ runner.os }}-
 
       - name: Install Python dependencies
         if: steps.poll.outputs.has_work == 'true'
@@ -134,7 +143,12 @@ jobs:
         if: steps.poll.outputs.has_work == 'true'
         run: |
           python 源码/cloud_log_relay.py --line "开始准备 social-auto-upload 发布组件。"
-          git clone --depth 1 https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
+          if [ ! -f 配置/social-auto-upload/uploader/douyin_uploader/main.py ]; then
+            rm -rf 配置/social-auto-upload
+            git clone --depth 1 https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
+          else
+            echo "Using cached social-auto-upload"
+          fi
           cd 配置/social-auto-upload
           cp conf.example.py conf.py
           python "${{ github.workspace }}/源码/cloud_patch_sau.py"

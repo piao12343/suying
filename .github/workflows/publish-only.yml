@@ -63,9 +63,35 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg xvfb
 
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('配置/requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Cache browser binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: browser-${{ runner.os }}-chromium-v2
+          restore-keys: browser-${{ runner.os }}-
+
+      - name: Cache social-auto-upload
+        uses: actions/cache@v4
+        with:
+          path: 配置/social-auto-upload
+          key: sau-${{ runner.os }}-${{ hashFiles('源码/cloud_patch_sau.py') }}-v1
+          restore-keys: sau-${{ runner.os }}-
+
       - name: Clone social-auto-upload
         run: |
-          git clone --depth 1 https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
+          if [ ! -f 配置/social-auto-upload/uploader/douyin_uploader/main.py ]; then
+            rm -rf 配置/social-auto-upload
+            git clone --depth 1 https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
+          else
+            echo "Using cached social-auto-upload"
+          fi
           cd 配置/social-auto-upload
           cp conf.example.py conf.py
           python "${{ github.workspace }}/源码/cloud_patch_sau.py"
