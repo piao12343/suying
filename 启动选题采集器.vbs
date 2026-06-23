@@ -1,3 +1,6 @@
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.CurrentDirectory = "D:\Personal\Desktop\suying-github"
-WshShell.Run "pythonw 源码\tools\story_collector.py", 0, False
+Set FSO = CreateObject("Scripting.FileSystemObject")
+Root = FSO.GetParentFolderName(WScript.ScriptFullName)
+WshShell.CurrentDirectory = Root
+Cmd = "cmd /c pythonw """ & Root & "\story_collector_launcher.py"" > """ & Root & "\story_collector_launcher.log"" 2>&1"
+WshShell.Run Cmd, 0, False
