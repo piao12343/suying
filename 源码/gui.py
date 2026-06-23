@@ -205,7 +205,7 @@ class App:
         config = load_config()
         self.listener_var = tk.BooleanVar(value=config.get('listener_enabled', False))
         self.listener_chk = ttk.Checkbutton(
-            toolbar, text='远程监听', variable=self.listener_var,
+            toolbar, text='本地远程监听', variable=self.listener_var,
             command=self._toggle_listener)
         self.listener_chk.pack(side='left', padx=(0, 8))
         self.listener_status = ttk.Label(toolbar, text='', foreground='gray')
@@ -439,7 +439,7 @@ class App:
         win.title('设置')
         # Center on main window
         win.update_idletasks()
-        pw, ph = 480, 520
+        pw, ph = 480, 430
         rx = self.root.winfo_x()
         ry = self.root.winfo_y()
         rw = self.root.winfo_width()
@@ -452,26 +452,9 @@ class App:
 
         config = load_config()
 
-        # -- Remote listener --
-        listener_section = ttk.LabelFrame(win, text='远程监听', padding=(12, 8))
-        listener_section.pack(fill='x', padx=15, pady=(15, 10))
-
-        s_vars = {}
-        for key, label, default, width in [
-            ('listener_worker_url', '监听地址:', '', 35),
-            ('listener_secret', '密钥:', '', 25),
-            ('listener_interval_seconds', '轮询间隔(秒):', '30', 8),
-        ]:
-            row = ttk.Frame(listener_section)
-            row.pack(fill='x', pady=3)
-            ttk.Label(row, text=label, width=14, anchor='e').pack(side='left')
-            var = tk.StringVar(value=str(config.get(key, default)))
-            ttk.Entry(row, textvariable=var, width=width).pack(side='left', padx=(6, 0))
-            s_vars[key] = var
-
         # -- Auto publish --
         pub_section = ttk.LabelFrame(win, text='自动发布', padding=(12, 8))
-        pub_section.pack(fill='x', padx=15, pady=(0, 10))
+        pub_section.pack(fill='x', padx=15, pady=(15, 10))
 
         auto_var = tk.BooleanVar(value=config.get('auto_publish_douyin', False))
         chk_row = ttk.Frame(pub_section)
@@ -524,13 +507,6 @@ class App:
         def save(close=True):
             try:
                 c = load_config()
-                for k, v in s_vars.items():
-                    val = v.get().strip()
-                    try:
-                        val = int(val)
-                    except ValueError:
-                        pass
-                    c[k] = val
                 c['auto_publish_douyin'] = auto_var.get()
                 try:
                     c['publish_interval_minutes'] = int(interval_var.get().strip())
@@ -1042,12 +1018,12 @@ class App:
                 config['listener_enabled'] = False
                 CFG_PATH.write_text(
                     json.dumps(config, ensure_ascii=False, indent=4), encoding='utf-8')
-                messagebox.showwarning('提示', '请先在 设置 中填写监听地址')
+                messagebox.showwarning('提示', '请先在配置文件里填写 listener_worker_url')
                 return
             self.listener_stop.clear()
             self.listener_active = True
             self.listener_status.config(text='监听中...', foreground='green')
-            self.log('远程监听已开启')
+            self.log('本地远程监听已开启')
             self.listener_thread = threading.Thread(
                 target=self._listener_loop, daemon=True)
             self.listener_thread.start()
@@ -1055,7 +1031,7 @@ class App:
             self.listener_stop.set()
             self.listener_active = False
             self.listener_status.config(text='', foreground='gray')
-            self.log('远程监听已关闭')
+            self.log('本地远程监听已关闭')
 
     def _listener_loop(self):
         """Background polling thread: periodically check cloud for new links"""
