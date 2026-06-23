@@ -364,7 +364,7 @@ class App:
         win.title('设置')
         # Center on main window
         win.update_idletasks()
-        pw, ph = 480, 360
+        pw, ph = 520, 360
         rx = self.root.winfo_x()
         ry = self.root.winfo_y()
         rw = self.root.winfo_width()
@@ -377,57 +377,53 @@ class App:
 
         config = load_config()
 
-        # -- Publish settings --
-        pub_section = ttk.LabelFrame(win, text='发布设置', padding=(12, 8))
-        pub_section.pack(fill='x', padx=15, pady=(15, 10))
+        # -- Local listener --
+        local_section = ttk.LabelFrame(win, text='本地监听', padding=(12, 8))
+        local_section.pack(fill='x', padx=15, pady=(15, 10))
 
-        desc_row = ttk.Frame(pub_section)
-        desc_row.pack(fill='x', pady=3)
-        ttk.Label(desc_row, text='发布话题:', width=14, anchor='e').pack(side='left')
-        pub_desc_var = tk.StringVar(value=config.get('pub_desc', ''))
-        ttk.Entry(desc_row, textvariable=pub_desc_var, width=35).pack(side='left', padx=(6, 0))
+        local_poll_row = ttk.Frame(local_section)
+        local_poll_row.pack(fill='x', pady=3)
+        ttk.Label(local_poll_row, text='本地监听轮询间隔:', width=18, anchor='e').pack(side='left')
+        local_poll_var = tk.StringVar(value=str(config.get('listener_interval_seconds', 60)))
+        ttk.Entry(local_poll_row, textvariable=local_poll_var, width=8).pack(side='left', padx=(6, 4))
+        ttk.Label(local_poll_row, text='秒，仅本地远程监听使用，云端不用',
+                  foreground='gray', font=('', 8)).pack(side='left', padx=(4, 0))
+
+        # -- Publish settings --
+        pub_section = ttk.LabelFrame(win, text='发布配置', padding=(12, 8))
+        pub_section.pack(fill='x', padx=15, pady=(0, 10))
 
         interval_row = ttk.Frame(pub_section)
         interval_row.pack(fill='x', pady=3)
-        ttk.Label(interval_row, text='发布间隔(分钟):', width=14, anchor='e').pack(side='left')
+        ttk.Label(interval_row, text='发布间隔:', width=18, anchor='e').pack(side='left')
         interval_var = tk.StringVar(value=str(config.get('publish_interval_minutes', 120)))
-        ttk.Entry(interval_row, textvariable=interval_var, width=8).pack(side='left', padx=(6, 0))
-        ttk.Label(interval_row, text='多条任务时, 相邻发布的时间间隔',
+        ttk.Entry(interval_row, textvariable=interval_var, width=8).pack(side='left', padx=(6, 4))
+        ttk.Label(interval_row, text='分钟，多条任务时相邻发布的间隔',
+                  foreground='gray', font=('', 8)).pack(side='left', padx=(4, 0))
+
+        desc_row = ttk.Frame(pub_section)
+        desc_row.pack(fill='x', pady=3)
+        ttk.Label(desc_row, text='发布话题:', width=18, anchor='e').pack(side='left')
+        pub_desc_var = tk.StringVar(value=config.get('pub_desc', ''))
+        ttk.Entry(desc_row, textvariable=pub_desc_var, width=35).pack(side='left', padx=(6, 0))
+
+        template_row = ttk.Frame(pub_section)
+        template_row.pack(fill='x', pady=3)
+        ttk.Label(template_row, text='AI改写模板:', width=18, anchor='e').pack(side='left')
+        ttk.Button(template_row, text='打开模板文件', command=self._open_rewrite_template).pack(side='left', padx=(6, 0))
+        ttk.Label(template_row, text='修改后保存 txt，再点下面按钮同步',
                   foreground='gray', font=('', 8)).pack(side='left', padx=(8, 0))
 
-        local_poll_row = ttk.Frame(pub_section)
-        local_poll_row.pack(fill='x', pady=3)
-        ttk.Label(local_poll_row, text='本地监听轮询:', width=14, anchor='e').pack(side='left')
-        local_poll_var = tk.StringVar(value=str(config.get('listener_interval_seconds', 30)))
-        ttk.Entry(local_poll_row, textvariable=local_poll_var, width=8).pack(side='left', padx=(6, 0))
-        ttk.Label(local_poll_row, text='秒，仅本地远程监听使用，云端不用',
-                  foreground='gray', font=('', 8)).pack(side='left', padx=(8, 0))
-
-        cloud_section = ttk.LabelFrame(win, text='云端同步', padding=(12, 8))
-        cloud_section.pack(fill='x', padx=15, pady=(0, 10))
         ttk.Label(
-            cloud_section,
-            text='本地配置是主配置。关电脑前同步一次，云端会按同样设置运行。',
+            pub_section,
+            text='本地配置是主配置。保存并同步后，云端会按同样设置运行。',
             foreground='gray',
             font=('', 8)
-        ).pack(anchor='w', pady=(0, 6))
-        cloud_btn_row = ttk.Frame(cloud_section)
-        cloud_btn_row.pack(fill='x')
-        self.cloud_sync_btn = ttk.Button(
-            cloud_btn_row,
-            text='同步本地配置到云端',
-            command=self._sync_default_cloud_settings,
-        )
-        self.cloud_sync_btn.pack(side='left')
-        ttk.Button(
-            cloud_btn_row,
-            text='刷新 Cookie 并同步云端',
-            command=self._refresh_cookie_and_sync_cloud,
-        ).pack(side='left', padx=(8, 0))
+        ).pack(anchor='w', padx=(18, 0), pady=(6, 0))
 
         # -- Save button --
-        btn_row = ttk.Frame(win)
-        btn_row.pack(fill='x', padx=15, pady=(10, 15))
+        btn_row = ttk.Frame(pub_section)
+        btn_row.pack(fill='x', padx=(18, 0), pady=(8, 0))
 
         def save(close=True):
             try:
@@ -455,9 +451,22 @@ class App:
                 msg_lbl.config(text=f'保存失败: {e}', foreground='red')
                 return False
 
-        ttk.Button(btn_row, text='保存', command=save).pack(side='left')
+        def save_and_sync():
+            if save(close=False):
+                self._sync_default_cloud_settings()
+
+        self.cloud_sync_btn = ttk.Button(btn_row, text='保存并同步云端', command=save_and_sync)
+        self.cloud_sync_btn.pack(side='left')
         msg_lbl = ttk.Label(btn_row, text='', foreground='green')
         msg_lbl.pack(side='left', padx=(12, 0))
+
+        account_section = ttk.LabelFrame(win, text='抖音账号', padding=(12, 8))
+        account_section.pack(fill='x', padx=15, pady=(0, 10))
+        ttk.Button(
+            account_section,
+            text='抖音 Cookie 同步云端',
+            command=self._refresh_cookie_and_sync_cloud,
+        ).pack(side='left')
 
     # ----------------------------------------------------------------
     # Workspace switching
@@ -765,7 +774,23 @@ class App:
             '--publish-interval',
             '--rewrite-template',
         ]
-        self._run_cloud_sync_command(cmd, '同步本地配置到云端')
+        self._run_cloud_sync_command(cmd, '保存并同步云端')
+
+    def _open_rewrite_template(self):
+        """Open the AI rewrite template text file with the system editor."""
+        template = CFG_DIR / 'ai生故事模板.txt'
+        if not template.exists():
+            messagebox.showerror('错误', f'未找到模板文件: {template}')
+            return
+        try:
+            if sys.platform == 'win32':
+                os.startfile(str(template))
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', str(template)])
+            else:
+                subprocess.Popen(['xdg-open', str(template)])
+        except Exception as e:
+            messagebox.showerror('错误', f'打开模板失败: {e}')
 
     def _refresh_cookie_and_sync_cloud(self):
         """Launch the existing cookie refresh + cloud sync script."""
@@ -775,7 +800,7 @@ class App:
             return
         try:
             os.startfile(str(bat))
-            self.log('已打开刷新 Cookie 并同步云端脚本。')
+            self.log('已打开抖音 Cookie 同步云端脚本。')
         except Exception as e:
             messagebox.showerror('错误', f'启动失败: {e}')
 

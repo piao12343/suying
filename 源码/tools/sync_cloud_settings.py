@@ -19,6 +19,14 @@ CONFIG_PATH = CFG_DIR / 'config.json'
 TEMPLATE_PATH = CFG_DIR / 'ai生故事模板.txt'
 COOKIE_PATH = CFG_DIR / 'cookies' / 'douyin_creator.json'
 GITHUB_REPO = 'piao12343/suying'
+SECRET_LABELS = {
+    'SUYING_PUB_DESC': '发布话题',
+    'SUYING_AUTO_PUBLISH': '自动发布固定开启',
+    'SUYING_PUBLISH_INTERVAL_MINUTES': '发布间隔',
+    'SUYING_REWRITE_CUSTOM_INSTRUCTION': '文案改写自定义指令',
+    'SUYING_REWRITE_TEMPLATE_TEXT': 'AI改写模板',
+    'DOUYIN_COOKIES_JSON': '抖音 Cookie',
+}
 
 
 def load_config():
@@ -44,8 +52,8 @@ def set_secret(gh, name, value):
         input=data,
     )
     if result.returncode != 0:
-        raise RuntimeError(f'同步失败: {name}')
-    print(f'已同步: {name}')
+        raise RuntimeError(f'同步失败: {SECRET_LABELS.get(name, name)}')
+    print(f'已同步：{SECRET_LABELS.get(name, name)}')
 
 
 def read_cookie_bytes():
