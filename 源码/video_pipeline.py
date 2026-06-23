@@ -134,10 +134,12 @@ def ai_extract_image_keywords(segments, api_key, model, max_retries=3, learning_
     if learning_context:
         learn_part = f'\n{learning_context}\n'
     prompt = (
-        "你是一个短视频配图搜索助手。下面每个编号是一组中文镜头文案，"
+        "你是一个民间故事短视频配图搜索助手。下面每个编号是一组中文镜头文案，"
         "请为每组提取1-2个适合在Pexels图片网站搜索的英文关键词。\n"
         "要求:\n"
-        "- 关键词必须是英文, 偏向视觉画面描述 (场景、物体、人物动作、氛围)\n"
+        "- 关键词必须是英文, 偏向视觉画面描述 (人物、场景、动作、氛围)\n"
+        "- 优先人物主体, 例如 woman, man, elderly woman, couple, village girl, scholar\n"
+        "- 画面适合民间故事频道: colorful, cinematic, rural village, folk tale mood\n"
         "- 每组关键词用逗号分隔, 2-4个单词的短语最佳\n"
         "- 严格按编号顺序输出, 格式: 编号. keyword1, keyword2\n"
         f"- 只输出关键词, 不要任何解释或多余文字\n{learn_part}\n"
@@ -273,6 +275,51 @@ def download_image(url, save_path, timeout=30):
     return False
 
 
+def select_story_image_segments(segments, max_images=5):
+    """为民间故事选少量关键分镜配图, 避免每句话都换图。"""
+    if not segments:
+        return []
+
+    max_images = max(1, min(max_images, len(segments)))
+    if len(segments) <= max_images:
+        return segments
+
+    picked = []
+    last_pos = -1
+    for i in range(max_images):
+        pos = round(i * (len(segments) - 1) / (max_images - 1)) if max_images > 1 else 0
+        pos = max(pos, last_pos + 1)
+        pos = min(pos, len(segments) - (max_images - i))
+        picked.append(segments[pos])
+        last_pos = pos
+    return picked
+
+
+def fill_missing_story_images(segments, results):
+    """没有单独配图的分镜复用最近图片, 让渲染流程保持简单稳定。"""
+    if not segments or not results:
+        return results
+
+    by_id = {r['id']: r for r in results}
+    filled = []
+    current = None
+    result_ids = sorted(by_id)
+    for seg in segments:
+        if seg['id'] in by_id:
+            current = by_id[seg['id']]
+        elif current is None:
+            next_id = next((rid for rid in result_ids if rid > seg['id']), None)
+            current = by_id.get(next_id)
+        if current:
+            filled.append({
+                'id': seg['id'],
+                'image_path': current['image_path'],
+                'search_query': current.get('search_query', ''),
+                'reused_from': current['id'],
+            })
+    return filled
+
+
 def search_and_download_images(segments, config, output_dir, learning_context=''):
     """
     为每个分镜段落搜索并下载实拍图片。
@@ -284,6 +331,10 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
     keyword_map = config.get('image_search_keywords_map', {})
     fallback_terms = config.get('fallback_search_terms', [])
     img_dir = ensure_dir(output_dir / 'images')
+    max_story_images = int(config.get('story_image_count', 5) or 5)
+    search_segments = select_story_image_segments(segments, max_story_images)
+    if len(search_segments) < len(segments):
+        print(f"   民间故事配图模式: 只搜索 {len(search_segments)} 张关键图, 其他分镜复用图片")
 
     # 优先用AI提取每个镜头的搜索关键词
     ai_keywords = {}
@@ -291,7 +342,7 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
     or_model = config.get('openrouter_model', '')
     if or_key and or_model:
         print("   正在用AI提取图片搜索关键词...")
-        ai_keywords = ai_extract_image_keywords(segments, or_key, or_model,
+        ai_keywords = ai_extract_image_keywords(search_segments, or_key, or_model,
                                                 learning_context=learning_context)
         if ai_keywords:
             print("   AI关键词提取完成, 使用AI关键词搜索")
@@ -303,7 +354,7 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
     results = []
     used_queries = set()
 
-    for i, seg in enumerate(segments):
+    for i, seg in enumerate(search_segments):
         print(f"   分镜 {seg['id']}: 搜索图片...")
 
         # 关键词优先级: AI提取 > 静态keyword_map > fallback
@@ -381,7 +432,7 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
 
         time.sleep(0.5)  # 避免API频率限制
 
-    return results
+    return fill_missing_story_images(segments, results)
 
 
 # ============ 步骤4: TTS语音合成 ============

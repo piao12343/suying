@@ -1435,24 +1435,37 @@ class App:
         trans_dur = 0.5 if config.get('transition_enabled', True) else 0
         if trans_dur > 0:
             self.log(f'    转场: 淡入淡出 {trans_dur}s')
+        render_items = []
         for s in self.segments:
             im = next((r for r in self.images if r['id'] == s['id']), None)
             if not im:
                 continue
-            cp = cdir / f"clip_{s['id']:02d}.mp4"
-            dr = dirs[(s['id']-1) % 4]
             sd = max((len(s['text'])/tc) * sum(x['duration'] for x in self.segments), 3.0)
+            if render_items and render_items[-1]['image_path'] == im['image_path']:
+                render_items[-1]['duration'] += sd
+                render_items[-1]['ids'].append(s['id'])
+            else:
+                render_items.append({
+                    'ids': [s['id']],
+                    'image_path': im['image_path'],
+                    'duration': sd,
+                })
+        for idx, item in enumerate(render_items):
+            first_id = item['ids'][0]
+            cp = cdir / f"clip_{first_id:02d}.mp4"
+            dr = dirs[idx % 4]
             fade_in = 0 if not cfs else trans_dur
             if create_kenburns_clip(
-                im['image_path'], cp, sd, W, H, fps, ffmpeg, dr,
+                item['image_path'], cp, item['duration'], W, H, fps, ffmpeg, dr,
                 transition_duration=trans_dur,
                 fade_in_duration=fade_in,
                 fade_out_duration=trans_dur,
             ):
                 cfs.append(str(cp))
-                self.log(f'    + 片段{s["id"]}: {dr} {sd:.1f}s')
+                id_text = f'{item["ids"][0]}-{item["ids"][-1]}' if len(item['ids']) > 1 else str(first_id)
+                self.log(f'    + 片段{id_text}: {dr} {item["duration"]:.1f}s')
             else:
-                self.log(f'    x 片段{s["id"]}失败')
+                self.log(f'    x 片段{first_id}失败')
         if not cfs:
             raise RuntimeError('没有成功创建任何视频片段!')
 

@@ -11,6 +11,7 @@
     "video_height": 1920,
     "fps": 30,
     "num_shots": 10,
+    "story_image_count": 5,
     "image_search_keywords_map": {
         "公路": "highway road construction",
         "修路": "road construction workers",
