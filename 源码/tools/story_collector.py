@@ -334,9 +334,12 @@ class StoryCollectorApp:
         self.root.geometry('1080x720')
 
         self.ui_queue = queue.Queue()
+        self.browser_queue = queue.Queue()
         self.collector = DouyinCollector(self.log)
         self.candidates = []
         self.check_vars = {}
+        self.browser_thread = threading.Thread(target=self.browser_worker, daemon=True)
+        self.browser_thread.start()
 
         self.build_ui()
         self.load_saved_candidates()
@@ -372,6 +375,25 @@ class StoryCollectorApp:
 
     def log(self, text):
         self.ui_queue.put(('log', str(text)))
+
+    def browser_worker(self):
+        while True:
+            task = self.browser_queue.get()
+            if task is None:
+                break
+            name, payload = task
+            try:
+                if name == 'open_login':
+                    self.collector.open_login()
+                    self.log('采集期间请保持弹出的抖音浏览器打开。')
+                elif name == 'collect':
+                    candidates = self.collector.collect(payload)
+                    self.ui_queue.put(('candidates', candidates))
+            except Exception as e:
+                if name == 'collect':
+                    self.log(f'采集失败: {e}')
+                else:
+                    self.log(f'打开抖音失败: {e}')
 
     def process_queue(self):
         while True:
@@ -427,19 +449,11 @@ class StoryCollectorApp:
             self.tree.item(str(idx), values=values)
 
     def open_login(self):
-        threading.Thread(target=self.collector.open_login, daemon=True).start()
+        self.browser_queue.put(('open_login', None))
 
     def collect(self):
         target_count = int(self.count_var.get() or 10)
-
-        def worker():
-            try:
-                candidates = self.collector.collect(target_count)
-                self.ui_queue.put(('candidates', candidates))
-            except Exception as e:
-                self.log(f'采集失败: {e}')
-
-        threading.Thread(target=worker, daemon=True).start()
+        self.browser_queue.put(('collect', target_count))
 
     def submit_selected(self):
         selected = [c for i, c in enumerate(self.candidates) if self.check_vars.get(i, False)]
@@ -467,6 +481,10 @@ class StoryCollectorApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def on_close(self):
+        try:
+            self.browser_queue.put(None)
+        except Exception:
+            pass
         try:
             self.collector.close()
         except Exception:
