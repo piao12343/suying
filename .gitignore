@@ -26,3 +26,6 @@ social-auto-upload/
 
 # 本地启动日志
 story_collector_launcher.log
+
+# Cloudflare Wrangler 本地缓存
+配置/.wrangler/

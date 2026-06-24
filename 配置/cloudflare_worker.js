@@ -228,17 +228,14 @@ async function ensureWorkflowRunning(env, debugLogsEnabled = false) {
 async function reservePublishSchedule(env, intervalMinutes) {
   const intervalMs = Math.max(0, intervalMinutes) * 60 * 1000;
   const now = Date.now();
+  const minPublishAt = now + 2 * 60 * 60 * 1000;
   const raw = await env.LINKS.get('next_publish_time');
   const next = raw ? Date.parse(raw) : NaN;
+  const publishAt = Number.isFinite(next) && next >= minPublishAt ? next : minPublishAt;
+  const followingStep = intervalMs || 30 * 60 * 1000;
 
-  if (!intervalMs || !Number.isFinite(next) || next <= now) {
-    const following = new Date(now + intervalMs).toISOString();
-    await env.LINKS.put('next_publish_time', following);
-    return { strategy: 'immediate', publishDate: '' };
-  }
-
-  const publishDate = new Date(next).toISOString();
-  const following = new Date(next + intervalMs).toISOString();
+  const publishDate = new Date(publishAt).toISOString();
+  const following = new Date(publishAt + followingStep).toISOString();
   await env.LINKS.put('next_publish_time', following);
   return { strategy: 'scheduled', publishDate };
 }
