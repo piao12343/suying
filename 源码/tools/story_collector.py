@@ -13,6 +13,7 @@ import os
 import threading
 import time
 import tkinter as tk
+import webbrowser
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -475,6 +476,7 @@ class StoryCollectorApp:
             self.tree.heading(col, text=col)
             self.tree.column(col, width=width, anchor='w')
         self.tree.pack(fill='both', expand=True, padx=10, pady=(0, 8))
+        self.tree.bind('<ButtonRelease-1>', self.open_link_on_click)
         self.tree.bind('<Double-1>', self.toggle_selected)
 
         log_frame = ttk.Frame(self.root, padding=(10, 0, 10, 10))
@@ -549,6 +551,22 @@ class StoryCollectorApp:
         values = list(self.tree.item(item, 'values'))
         values[0] = '√' if self.check_vars[idx] else ''
         self.tree.item(item, values=values)
+
+    def open_link_on_click(self, event):
+        if self.tree.identify_region(event.x, event.y) != 'cell':
+            return
+        if self.tree.identify_column(event.x) != '#8':
+            return
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        try:
+            url = self.candidates[int(item)].url
+        except Exception:
+            return
+        if url:
+            webbrowser.open(url)
+            self.log(f'打开链接: {url}')
 
     def set_all(self, checked):
         for idx in range(len(self.candidates)):
