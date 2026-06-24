@@ -237,8 +237,10 @@ git push
 ## 8. 重要注意事项
 
 - 修改项目代码前先做 git 提交备份，除非用户明确说不用备份。
-- 本地项目代码修改完成并验证后，默认要提交并 `git push origin master`，让 GitHub 云端仓库和本地保持一致。
-- 如果修改了会被云端读取的配置或提示词，例如 `配置/ai生故事模板.txt`、发布话题、发布间隔等，除了提交推送代码，还要运行对应同步脚本同步 GitHub Secrets。
+- 本地项目代码修改完成并验证后，必须提交并 `git push origin master`，让 GitHub 云端仓库和本地保持一致；除非用户明确说这次不要提交或不要推送。
+- 如果修改了会被云端读取的配置或提示词，例如 `配置/ai生故事模板.txt`、发布话题、发布间隔等，除了提交推送代码，还必须运行对应同步脚本同步 GitHub Secrets。
+- 如果修改了 `配置/cloudflare_worker.js`，提交推送后必须执行 `wrangler deploy` 部署 Cloudflare Worker。
+- 如果修改了 `配置/pages/`，提交推送后必须执行 `wrangler pages deploy 配置/pages --project-name suying-link --branch master` 部署 Cloudflare Pages。
 - Python 文件改完必须跑 `py_compile`，至少覆盖本次改动文件。
 - 含中文文件要用 UTF-8；`.ini` 用 `utf-8-sig`。
 - 不要为了“更优雅”大重构。这个项目优先稳定、实用、简单。
