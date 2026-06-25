@@ -814,9 +814,14 @@ class App:
             return
         try:
             if sys.platform == 'win32':
+                python_exe = Path(sys.executable)
+                if python_exe.name.lower() == 'pythonw.exe':
+                    console_python = python_exe.with_name('python.exe')
+                    if console_python.exists():
+                        python_exe = console_python
                 cmd = (
                     f'title 速影 - 抖音 Cookie 同步云端 && '
-                    f'"{sys.executable}" "{script}"'
+                    f'call "{python_exe}" "{script}"'
                 )
                 subprocess.Popen(
                     ['cmd.exe', '/k', cmd],
