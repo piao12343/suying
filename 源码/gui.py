@@ -807,13 +807,24 @@ class App:
             messagebox.showerror('错误', f'打开模板失败: {e}')
 
     def _refresh_cookie_and_sync_cloud(self):
-        """Launch the existing cookie refresh + cloud sync script."""
-        bat = SRC_DIR / 'tools' / '刷新抖音Cookie并同步云端.bat'
-        if not bat.exists():
-            messagebox.showerror('错误', f'未找到脚本: {bat}')
+        """Launch cookie refresh + cloud sync in a visible console window."""
+        script = SRC_DIR / 'tools' / 'refresh_cookies.py'
+        if not script.exists():
+            messagebox.showerror('错误', f'未找到脚本: {script}')
             return
         try:
-            os.startfile(str(bat))
+            if sys.platform == 'win32':
+                cmd = (
+                    f'title 速影 - 抖音 Cookie 同步云端 && '
+                    f'"{sys.executable}" "{script}"'
+                )
+                subprocess.Popen(
+                    ['cmd.exe', '/k', cmd],
+                    cwd=str(BASE),
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                )
+            else:
+                subprocess.Popen([sys.executable, str(script)], cwd=str(BASE))
             self.log('已打开抖音 Cookie 同步云端脚本。')
         except Exception as e:
             messagebox.showerror('错误', f'启动失败: {e}')
