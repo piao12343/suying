@@ -25,6 +25,8 @@ for e in [OUT_DIR, CACHE]:
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from ai_client import call_openrouter_chat
+
 # Cache dir (whisper models etc)
 _CACHE_BASE = Path(os.environ.get('SUYING_CACHE_DIR', str(CACHE)))
 if not os.environ.get('HF_HOME'):
@@ -66,6 +68,8 @@ def build_config():
         'SUYING_TTS_VOICE': 'tts_voice',
         'SUYING_TTS_RATE': 'tts_rate',
         'SUYING_OPENROUTER_MODEL': 'openrouter_model',
+        'SUYING_OPENROUTER_BASE_URL': 'openrouter_base_url',
+        'SUYING_OPENROUTER_FALLBACK_MODELS': 'openrouter_fallback_models',
         'SUYING_PUB_DESC': 'pub_desc',
         'SUYING_AUTO_PUBLISH': 'auto_publish_douyin',
         'SUYING_PUBLISH_INTERVAL_MINUTES': 'publish_interval_minutes',
@@ -232,8 +236,6 @@ class Pipeline:
 
     # -------- Step 2: AI rewrite --------
     def step2_rewrite(self):
-        import requests as req
-
         log('=' * 50)
         log('[步骤2/7] AI改写文案...')
 
@@ -257,39 +259,21 @@ class Pipeline:
             prompt += '\n\n' + raw
 
             log(f'  模型: {self.config["openrouter_model"]}')
-            for att in range(5):
-                try:
-                    r = req.post('https://openrouter.ai/api/v1/chat/completions',
-                        headers={'Content-Type': 'application/json',
-                                 'Authorization': f'Bearer {self.config["openrouter_api_key"]}'},
-                        json={'model': self.config['openrouter_model'],
-                              'messages': [{'role': 'user', 'content': prompt}],
-                              'max_tokens': self.config.get('openrouter_max_tokens', 4000)},
-                        timeout=180)
-                    d = r.json()
-                    if 'error' in d:
-                        code = d['error'].get('code', 0)
-                        msg = d['error'].get('message', '')[:80]
-                        log(f'  尝试{att+1}/5 失败: {msg}')
-                        if code == 429 and att < 4:
-                            wait = 30
-                            log(f'  限速, 等待{wait}秒后重试...')
-                            time.sleep(wait)
-                            continue
-                        elif att < 4:
-                            time.sleep(10)
-                            continue
-                        raise RuntimeError(f'OpenRouter错误: {d["error"]}')
-                    break
-                except req.exceptions.Timeout:
-                    log(f'  尝试{att+1}/5 超时')
-                    if att < 4:
-                        time.sleep(10)
-                        continue
-                    raise RuntimeError('OpenRouter超时')
+            d = call_openrouter_chat(
+                self.config,
+                prompt,
+                max_tokens=self.config.get('openrouter_max_tokens', 4000),
+                retries=2,
+                timeout=180,
+                log_func=log,
+            )
+            used_model = d.get('_used_model')
+            if used_model and used_model != self.config.get('openrouter_model'):
+                log(f'  实际使用模型: {used_model}')
 
             txt = d['choices'][0]['message']['content'].strip()
-            log(f'  tokens: {d["usage"]["total_tokens"]}, cost: ${d["usage"]["cost"]}')
+            usage = d.get('usage', {})
+            log(f'  tokens: {usage.get("total_tokens", 0)}, cost: ${usage.get("cost", 0)}')
             t2 = re.search(r'【标题】\s*\n?(.+)', txt)
             b2 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt)
             title = t2.group(1).strip() if t2 else raw[:6]

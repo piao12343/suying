@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, simpledialog, messagebox
+from ai_client import call_openrouter_chat
 
 NW = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
 
@@ -28,7 +29,13 @@ CFG_PATH = CFG_DIR / 'config.json'
 
 
 def load_config():
-    return json.loads(CFG_PATH.read_text(encoding='utf-8'))
+    config = {}
+    template = CFG_DIR / 'config_template.json'
+    if template.exists():
+        config.update(json.loads(template.read_text(encoding='utf-8')))
+    if CFG_PATH.exists():
+        config.update(json.loads(CFG_PATH.read_text(encoding='utf-8')))
+    return config
 
 
 # ============ Learning Records ============
@@ -1281,7 +1288,6 @@ class App:
         self.log_q.put(('tab', 0))
 
     def _step2_rewrite(self):
-        import requests as req
         config = load_config()
 
         self.set_step(2, 'active')
@@ -1304,35 +1310,20 @@ class App:
                 self.log('  已注入学习偏好')  # Learning preference injected
             prompt += '\n\n' + raw
             self.log(f'  模型: {config["openrouter_model"]}')
-            for att in range(5):
-                try:
-                    r = req.post('https://openrouter.ai/api/v1/chat/completions',
-                        headers={'Content-Type': 'application/json',
-                                 'Authorization': f'Bearer {config["openrouter_api_key"]}'},
-                        json={'model': config['openrouter_model'],
-                              'messages': [{'role': 'user', 'content': prompt}],
-                              'max_tokens': config.get('openrouter_max_tokens', 4000)},
-                        timeout=180)
-                    d = r.json()
-                    if 'error' in d:
-                        code = d['error'].get('code', 0)
-                        msg = d['error'].get('message', '')[:80]
-                        self.log(f'  尝试{att+1}/5 失败: {msg}')
-                        if code == 429 and att < 4:
-                            wait = 30  # Rate limited
-                            self.log(f'  限速, 等待{wait}秒后重试...')
-                            time.sleep(wait); continue  # Wait and retry
-                        elif att < 4:
-                            time.sleep(10); continue
-                        raise RuntimeError(f'OpenRouter错误: {d["error"]}')
-                    break
-                except req.exceptions.Timeout:
-                    self.log(f'  尝试{att+1}/5 超时')
-                    if att < 4:
-                        time.sleep(10); continue
-                    raise RuntimeError('OpenRouter超时')
+            d = call_openrouter_chat(
+                config,
+                prompt,
+                max_tokens=config.get('openrouter_max_tokens', 4000),
+                retries=2,
+                timeout=180,
+                log_func=self.log,
+            )
+            used_model = d.get('_used_model')
+            if used_model and used_model != config.get('openrouter_model'):
+                self.log(f'  实际使用模型: {used_model}')
             txt = d['choices'][0]['message']['content'].strip()
-            self.log(f'  tokens: {d["usage"]["total_tokens"]}, cost: ${d["usage"]["cost"]}')
+            usage = d.get('usage', {})
+            self.log(f'  tokens: {usage.get("total_tokens", 0)}, cost: ${usage.get("cost", 0)}')
             t2 = re.search(r'【标题】\s*\n?(.+)', txt)
             b2 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt)
             title = t2.group(1).strip() if t2 else raw[:6]

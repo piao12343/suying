@@ -16,6 +16,8 @@ import requests
 import subprocess
 from pathlib import Path
 
+from ai_client import call_openrouter_chat
+
 # 隐藏子进程控制台窗口
 NW = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
 
@@ -122,7 +124,7 @@ def extract_search_keywords(text, keyword_map):
     return unique[:3] if unique else None
 
 
-def ai_extract_image_keywords(segments, api_key, model, max_retries=3, learning_context=''):
+def ai_extract_image_keywords(segments, config, max_retries=2, learning_context=''):
     """
     用AI为每个镜头提取图片搜索关键词。
     一次API调用处理所有镜头, 返回 {shot_id: [keyword1, keyword2]} 字典。
@@ -146,41 +148,21 @@ def ai_extract_image_keywords(segments, api_key, model, max_retries=3, learning_
         f"{seg_list}"
     )
 
-    for attempt in range(max_retries):
-        try:
-            r = requests.post(
-                'https://openrouter.ai/api/v1/chat/completions',
-                headers={
-                    'Content-Type': 'application/json',
-                    'Authorization': f'Bearer {api_key}'
-                },
-                json={
-                    'model': model,
-                    'messages': [{'role': 'user', 'content': prompt}],
-                    'max_tokens': 600
-                },
-                timeout=120
-            )
-            data = r.json()
-            if 'error' in data:
-                code = data['error'].get('code', 0)
-                print(f"   AI提取关键词失败 (尝试{attempt+1}/{max_retries}): "
-                      f"{data['error'].get('message','')[:80]}")
-                if code == 429 and attempt < max_retries - 1:
-                    print(f"   限速, 等待30秒后重试...")
-                    time.sleep(30)
-                    continue
-                elif attempt < max_retries - 1:
-                    time.sleep(10)
-                    continue
-                return {}
-            break
-        except Exception as e:
-            print(f"   AI提取关键词异常 (尝试{attempt+1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                time.sleep(10)
-                continue
-            return {}
+    try:
+        data = call_openrouter_chat(
+            config,
+            prompt,
+            max_tokens=600,
+            retries=max_retries,
+            timeout=120,
+            log_func=print,
+        )
+        used_model = data.get('_used_model')
+        if used_model and used_model != config.get('openrouter_model'):
+            print(f"   AI关键词实际使用模型: {used_model}")
+    except Exception as e:
+        print(f"   AI提取关键词失败: {e}")
+        return {}
 
     # 解析AI返回的关键词
     text_resp = data['choices'][0]['message']['content'].strip()
@@ -342,8 +324,11 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
     or_model = config.get('openrouter_model', '')
     if or_key and or_model:
         print("   正在用AI提取图片搜索关键词...")
-        ai_keywords = ai_extract_image_keywords(search_segments, or_key, or_model,
-                                                learning_context=learning_context)
+        ai_keywords = ai_extract_image_keywords(
+            search_segments,
+            config,
+            learning_context=learning_context,
+        )
         if ai_keywords:
             print("   AI关键词提取完成, 使用AI关键词搜索")
         else:
