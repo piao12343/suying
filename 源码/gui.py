@@ -819,12 +819,27 @@ class App:
                     console_python = python_exe.with_name('python.exe')
                     if console_python.exists():
                         python_exe = console_python
-                cmd = (
-                    f'title 速影 - 抖音 Cookie 同步云端 && '
-                    f'call "{python_exe}" "{script}"'
-                )
                 subprocess.Popen(
-                    ['cmd.exe', '/k', cmd],
+                    [
+                        str(python_exe),
+                        '-c',
+                        (
+                            'import runpy, sys, traceback\n'
+                            "print('速影 - 抖音 Cookie 同步云端')\n"
+                            "print('=' * 50)\n"
+                            "code = 0\n"
+                            "try:\n"
+                            f"    sys.argv = [{str(script)!r}]\n"
+                            f"    runpy.run_path({str(script)!r}, run_name='__main__')\n"
+                            "except SystemExit as e:\n"
+                            "    code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)\n"
+                            "except Exception:\n"
+                            "    traceback.print_exc()\n"
+                            "    code = 1\n"
+                            "input('\\n请按回车键关闭窗口...')\n"
+                            "raise SystemExit(code)\n"
+                        ),
+                    ],
                     cwd=str(BASE),
                     creationflags=subprocess.CREATE_NEW_CONSOLE,
                 )
