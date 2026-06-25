@@ -488,7 +488,7 @@ class Pipeline:
         def ft(t):
             return f"{int(t//3600)}:{int((t%3600)//60):02d}:{int(t%60):02d}.{int((t%1)*100):02d}"
 
-        def ssp(text, ml=14):
+        def ssp(text, ml=18):
             ps = re.split(r'(?<=[，,。！？；、])', text)
             sg = [s.strip() for s in ps if s.strip()]
             rs = []
@@ -521,7 +521,10 @@ class Pipeline:
 
         def add_evt(start, end, text):
             text = subtitle_text(text)
-            if text and end > start:
+            start += 1.0
+            end += 1.0
+            if text and end > start and end > 1.0:
+                start = max(start, 1.0)
                 bg = (r"{\p1\an7\pos(0,0)\c&HFFFFFF&\alpha&H70&\bord0}"
                       r"m 190 1270 b 145 1270 110 1305 110 1350 "
                       r"l 110 1400 b 110 1445 145 1480 190 1480 "
