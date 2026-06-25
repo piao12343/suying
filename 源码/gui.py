@@ -1544,10 +1544,16 @@ class App:
         shutil.copy2(str(wa), str(ss))
         to = render_dir / 'title.mp4'
         te = self.title.replace("'", "'\\''").replace(":", "\\:")
-        vf1 = (f"drawbox=x=0:y=890:w=1080:h=140:color=white@0.6:t=fill:enable='between(t,0,1)',"
+        vf1 = (f"drawbox=x=0:y=890:w=1080:h=170:color=white@0.6:t=fill:enable='between(t,0,1)',"
                f"drawtext=fontfile='C\\:/Windows/Fonts/msyhbd.ttc':text='{te}'"
-               f":fontsize=88:fontcolor=0xFFD700:borderw=6:bordercolor=black"
-               f":x=(w-text_w)/2:y=916:enable='between(t,0,1)'")
+               f":fontsize=128:fontcolor=0xFFE600:borderw=9:bordercolor=black"
+               f":x=(w-text_w)/2:y=900:enable='between(t,0,1)',"
+               f"drawtext=fontfile='C\\:/Windows/Fonts/msyhbd.ttc':text='全'"
+               f":fontsize=82:fontcolor=0xFFE600:borderw=7:bordercolor=black"
+               f":x=(w-text_w)/2:y=1210:enable='between(t,0,1)',"
+               f"drawtext=fontfile='C\\:/Windows/Fonts/msyhbd.ttc':text='{te}'"
+               f":fontsize=64:fontcolor=0xFFE600:borderw=5:bordercolor=black"
+               f":x=(w-text_w)/2:y=110:enable='gte(t,1)'")
         r1 = subprocess.run([ffmpeg, '-y', '-i', str(ss), '-vf', vf1,
             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-c:a', 'copy', str(to)],
             capture_output=True, text=True, env=ff_env, timeout=600, **NW)
@@ -1562,7 +1568,7 @@ class App:
         def ft(t):
             return f"{int(t//3600)}:{int((t%3600)//60):02d}:{int(t%60):02d}.{int((t%1)*100):02d}"
 
-        def ssp(text, ml=18):
+        def ssp(text, ml=14):
             ps = re.split(r'(?<=[，,。！？；、])', text)
             sg = [s.strip() for s in ps if s.strip()]
             rs = []
@@ -1590,10 +1596,19 @@ class App:
             text = re.sub(r'[\r\n]+', ' ', text).strip()
             return re.sub(r'[，,。.!！？?；;、：:]+$', '', text).strip()
 
+        def ass_text(text):
+            return text.replace('\\', '\\\\').replace('{', '').replace('}', '')
+
         def add_evt(start, end, text):
             text = subtitle_text(text)
             if text and end > start:
-                evts.append(f"Dialogue: 0,{ft(start)},{ft(end)},Default,,0,0,0,,{text}")
+                bg = (r"{\p1\an7\pos(0,0)\c&HFFFFFF&\alpha&H70&\bord0}"
+                      r"m 190 1270 b 145 1270 110 1305 110 1350 "
+                      r"l 110 1400 b 110 1445 145 1480 190 1480 "
+                      r"l 890 1480 b 935 1480 970 1445 970 1400 "
+                      r"l 970 1350 b 970 1305 935 1270 890 1270")
+                evts.append(f"Dialogue: 0,{ft(start)},{ft(end)},Bubble,,0,0,0,,{bg}")
+                evts.append(f"Dialogue: 1,{ft(start)},{ft(end)},Default,,0,0,0,,{ass_text(text)}")
                 evt_times.append((start, end))
 
         def build_ratio_events(reason):
@@ -1654,7 +1669,8 @@ PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
-Style: Default,Microsoft YaHei,52,&H0030D0FF,&H000000FF,&H00FF00C8,&H00FFFFFF,-1,0,0,0,100,100,2,0,4,4,1,2,80,80,200
+Style: Default,Microsoft YaHei,86,&H0000E6FF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,8,0,2,120,120,500
+Style: Bubble,Microsoft YaHei,86,&H00FFFFFF,&H000000FF,&H00000000,&H00FFFFFF,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
