@@ -162,6 +162,25 @@ def get_font_config():
         }
 
 
+def probe_media_duration(ffmpeg_path, media_path, fallback=0.0):
+    """Read media duration using ffmpeg stderr output."""
+    try:
+        result = subprocess.run(
+            [ffmpeg_path, '-i', str(media_path), '-f', 'null', '-'],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            **NW,
+        )
+        match = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.?\d*)', result.stderr)
+        if match:
+            h, m, s = match.groups()
+            return int(h) * 3600 + int(m) * 60 + float(s)
+    except Exception:
+        pass
+    return fallback
+
+
 # ============ Pipeline ============
 class Pipeline:
     def __init__(self, config):
@@ -360,6 +379,10 @@ class Pipeline:
         W, H, fps = self.config['video_width'], self.config['video_height'], self.config['fps']
         dirs = ['zoom_in', 'zoom_out', 'pan_left', 'pan_right']
         tc = sum(len(s['text']) for s in self.segments)
+        estimated_duration = sum(x['duration'] for x in self.segments)
+        audio_duration = probe_media_duration(ffmpeg, self.audio_path, estimated_duration)
+        target_duration = max(audio_duration, 1.0)
+        log(f'  音频基准时长: {target_duration:.1f}s')
 
         # Font config (Linux/Windows compatible)
         fonts_dir = CACHE / 'ffmpeg_fonts'
@@ -391,7 +414,7 @@ class Pipeline:
             im = next((r for r in self.images if r['id'] == s['id']), None)
             if not im:
                 continue
-            sd = max((len(s['text'])/tc) * sum(x['duration'] for x in self.segments), 3.0)
+            sd = max((len(s['text']) / tc) * target_duration, 3.0)
             if render_items and render_items[-1]['image_path'] == im['image_path']:
                 render_items[-1]['duration'] += sd
                 render_items[-1]['ids'].append(s['id'])
@@ -433,14 +456,12 @@ class Pipeline:
         log('  [6c] 叠加TTS音频...')
         wa = self.proc_dir / 'video_with_audio.mp4'
         subprocess.run([ffmpeg, '-y', '-i', str(cat), '-i', str(self.audio_path),
-            '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k', '-shortest',
+            '-t', f'{target_duration:.3f}', '-c:v', 'libx264', '-preset', 'fast',
+            '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k',
             '-map', '0:v:0', '-map', '1:a:0', str(wa)],
             capture_output=True, text=True, timeout=300, **NW)
 
-        pr = subprocess.run([ffmpeg, '-i', str(wa), '-f', 'null', '-'],
-            capture_output=True, text=True, timeout=30, **NW)
-        dm = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.?\d*)', pr.stderr)
-        tdur = int(dm.group(1))*3600 + int(dm.group(2))*60 + float(dm.group(3)) if dm else 319
+        tdur = probe_media_duration(ffmpeg, wa, target_duration)
 
         # 6d: Render title cover
         log('  [6d] 渲染标题封面...')
@@ -766,6 +787,7 @@ sys.exit(0 if result.get('success') else 2)
             log('  发布成功!')
         else:
             log(f'  发布失败: {result["message"]}')
+            raise RuntimeError(result["message"])
 
     # -------- Notify --------
     def _notify(self, title, content):
@@ -846,18 +868,24 @@ def main():
         publish_date = os.environ.get('SUYING_PUBLISH_DATE', '')
 
         pipeline = Pipeline(config)
+        all_success = True
         for i, link in enumerate(links):
             log(f'\n{"="*60}')
             log(f'处理第 {i+1}/{len(links)} 条: {link}')
-            pipeline.run(link, publish_strategy=publish_strategy, publish_date=publish_date)
+            ok = pipeline.run(link, publish_strategy=publish_strategy, publish_date=publish_date)
+            all_success = all_success and ok
             # Reset pipeline state after each link
             if i < len(links) - 1:
                 pipeline = Pipeline(config)
+        if not all_success:
+            sys.exit(2)
 
     elif len(sys.argv) >= 2:
         # Single item mode
         pipeline = Pipeline(config)
         success = pipeline.run(sys.argv[1])
+        if not success:
+            sys.exit(2)
         sys.exit(0 if success else 1)
     else:
         print('用法: python cli_pipeline.py <抖音链接或文案文件>')

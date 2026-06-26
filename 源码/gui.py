@@ -38,6 +38,25 @@ def load_config():
     return config
 
 
+def probe_media_duration(ffmpeg_path, media_path, fallback=0.0):
+    """Read media duration using ffmpeg stderr output."""
+    try:
+        result = subprocess.run(
+            [ffmpeg_path, '-i', str(media_path), '-f', 'null', '-'],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            **NW,
+        )
+        match = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.?\d*)', result.stderr)
+        if match:
+            h, m, s = match.groups()
+            return int(h) * 3600 + int(m) * 60 + float(s)
+    except Exception:
+        pass
+    return fallback
+
+
 # ============ Learning Records ============
 LEARN_PATH = CFG_DIR / '学习记录.json'
 
@@ -1445,6 +1464,10 @@ class App:
         W, H, fps = config['video_width'], config['video_height'], config['fps']
         dirs = ['zoom_in', 'zoom_out', 'pan_left', 'pan_right']
         tc = sum(len(s['text']) for s in self.segments)
+        estimated_duration = sum(x['duration'] for x in self.segments)
+        audio_duration = probe_media_duration(ffmpeg, self.audio_path, estimated_duration)
+        target_duration = max(audio_duration, 1.0)
+        self.log(f'  音频基准时长: {target_duration:.1f}s')
 
         fonts_dir = CACHE / 'ffmpeg_fonts'
         fonts_conf = fonts_dir / 'fonts.conf'
@@ -1475,7 +1498,7 @@ class App:
             im = next((r for r in self.images if r['id'] == s['id']), None)
             if not im:
                 continue
-            sd = max((len(s['text'])/tc) * sum(x['duration'] for x in self.segments), 3.0)
+            sd = max((len(s['text']) / tc) * target_duration, 3.0)
             if render_items and render_items[-1]['image_path'] == im['image_path']:
                 render_items[-1]['duration'] += sd
                 render_items[-1]['ids'].append(s['id'])
@@ -1517,14 +1540,12 @@ class App:
         self.log('  [6c] 叠加TTS音频...')
         wa = self.proc_dir / 'video_with_audio.mp4'
         subprocess.run([ffmpeg, '-y', '-i', str(cat), '-i', str(self.audio_path),
-            '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k', '-shortest',
+            '-t', f'{target_duration:.3f}', '-c:v', 'libx264', '-preset', 'fast',
+            '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k',
             '-map', '0:v:0', '-map', '1:a:0', str(wa)],
             capture_output=True, text=True, timeout=300, **NW)
 
-        pr = subprocess.run([ffmpeg, '-i', str(wa), '-f', 'null', '-'],
-            capture_output=True, text=True, timeout=30, **NW)
-        dm = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.?\d*)', pr.stderr)
-        tdur = int(dm.group(1))*3600 + int(dm.group(2))*60 + float(dm.group(3)) if dm else 319
+        tdur = probe_media_duration(ffmpeg, wa, target_duration)
 
         # 6d: Render title cover
         self.log('  [6d] 渲染标题封面...')
@@ -1757,7 +1778,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 tags=[],
                 description=desc,
                 headless=True,
-                debug=False
+                debug=False,
+                thumbnail_portrait_path=self.cover_portrait_path,
+                thumbnail_landscape_path=self.cover_landscape_path,
             )
 
             self.log(f'  标题: {title}')

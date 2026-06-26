@@ -141,6 +141,8 @@ export default {
       const schedule = await reservePublishSchedule(env, intervalMinutes);
       current.publish_strategy = schedule.strategy;
       current.publish_date = schedule.publishDate;
+      current.reserved_publish_date = schedule.publishDate;
+      await env.LINKS.put('active_item', JSON.stringify(current), { expirationTtl: 21600 });
 
       return jsonResponse({ links: [current], queueLength: pending.length });
     }
@@ -152,6 +154,10 @@ export default {
       if (SECRET && secret !== SECRET) {
         return jsonResponse({ error: '密码错误' }, 403);
       }
+      if (body.success === false) {
+        await releaseActivePublishSchedule(env);
+      }
+      await env.LINKS.delete('active_item');
       await env.LINKS.put('running', 'false');
       ctx.waitUntil(ensureWorkflowRunning(env, debugLogsEnabled));
       return jsonResponse({ ok: true });
@@ -238,6 +244,27 @@ async function reservePublishSchedule(env, intervalMinutes) {
   const following = new Date(publishAt + followingStep).toISOString();
   await env.LINKS.put('next_publish_time', following);
   return { strategy: 'scheduled', publishDate };
+}
+
+async function releaseActivePublishSchedule(env) {
+  const raw = await env.LINKS.get('active_item');
+  if (!raw) {
+    return;
+  }
+  try {
+    const active = JSON.parse(raw);
+    const reserved = Date.parse(active.reserved_publish_date || active.publish_date || '');
+    if (!Number.isFinite(reserved)) {
+      return;
+    }
+    const nextRaw = await env.LINKS.get('next_publish_time');
+    const next = nextRaw ? Date.parse(nextRaw) : NaN;
+    if (!Number.isFinite(next) || reserved < next) {
+      await env.LINKS.put('next_publish_time', new Date(reserved).toISOString());
+    }
+  } catch (_) {
+    // Do not block queue cleanup if the debug payload is malformed.
+  }
 }
 
 // ---- 工具函数 ----

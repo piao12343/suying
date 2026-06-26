@@ -180,6 +180,7 @@ jobs:
 
       - name: Process videos
         if: steps.poll.outputs.has_work == 'true'
+        id: process
         env:
           FFMPEG_PATH: /usr/bin/ffmpeg
           SAU_DIR: ${{ github.workspace }}/配置/social-auto-upload
@@ -199,8 +200,10 @@ jobs:
           fi
           if [ "$code" -eq 0 ]; then
             python 源码/cloud_log_relay.py --line "云端任务完成。" --status success
+            echo "success=true" >> "$GITHUB_OUTPUT"
           else
             python 源码/cloud_log_relay.py --line "云端任务失败, 退出码: $code" --status failed
+            echo "success=false" >> "$GITHUB_OUTPUT"
           fi
           exit "$code"
 
@@ -230,7 +233,8 @@ jobs:
           secret = os.environ.get('SUYING_LISTENER_SECRET', '')
           if url and secret:
               try:
-                  requests.post(f'{url}/api/done', json={'secret': secret}, timeout=15)
+                  ok = '${{ steps.process.outputs.success }}' == 'true'
+                  requests.post(f'{url}/api/done', json={'secret': secret, 'success': ok}, timeout=15)
               except Exception as e:
                   print(f'done notify failed: {e}')
           "

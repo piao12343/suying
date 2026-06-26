@@ -130,6 +130,22 @@ def patch():
         ok = False
 
     # ── 步骤 6: 推荐封面确认框“确定”按钮会被 semi tooltip 浮层挡住 ──
+    auto_cover_guard = (
+        '    async def handle_auto_video_cover(self, page):\n'
+        '        if self.thumbnail_portrait_path or self.thumbnail_landscape_path:\n'
+        '            douyin_logger.info(_msg("🥳", "已上传自定义封面, 跳过推荐封面选择"))\n'
+        '            return False\n'
+    )
+    auto_cover_marker = '    async def handle_auto_video_cover(self, page):\n'
+    if auto_cover_guard in code:
+        print('[OK] step6a: custom cover skips auto recommended cover already patched')
+    elif auto_cover_marker in code:
+        code = code.replace(auto_cover_marker, auto_cover_guard, 1)
+        print('[OK] step6a: custom cover will skip auto recommended cover')
+    else:
+        print('[FAIL] step6a: handle_auto_video_cover marker not found')
+        ok = False
+
     confirm_old = (
         '                        await page.get_by_role("button", name="确定").click()\n'
         '                        douyin_logger.info(_msg("🥳", "推荐封面已经应用"))'
