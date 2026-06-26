@@ -786,14 +786,11 @@ class App:
         pass
 
     def _sync_default_cloud_settings(self):
-        """Sync common local settings to GitHub Secrets for cloud runs."""
+        """Sync local primary settings to GitHub Secrets for cloud runs."""
         cmd = [
             sys.executable,
             str(SRC_DIR / 'tools' / 'sync_cloud_settings.py'),
-            '--pub-desc',
-            '--auto-publish',
-            '--publish-interval',
-            '--rewrite-template',
+            '--all',
         ]
         self._run_cloud_sync_command(cmd, '保存并同步云端')
 
