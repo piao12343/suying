@@ -73,6 +73,7 @@ def build_config():
         'SUYING_PUB_DESC': 'pub_desc',
         'SUYING_AUTO_PUBLISH': 'auto_publish_douyin',
         'SUYING_PUBLISH_INTERVAL_MINUTES': 'publish_interval_minutes',
+        'SUYING_PUBLISH_TIMEOUT_SECONDS': 'publish_timeout_seconds',
         'SUYING_REWRITE_TEMPLATE_TEXT': 'rewrite_template_text',
     }
     for env_key, config_key in env_overrides.items():
@@ -80,7 +81,7 @@ def build_config():
         if val is not None:
             if config_key == 'auto_publish_douyin':
                 config[config_key] = val.lower() == 'true'
-            elif config_key == 'publish_interval_minutes':
+            elif config_key in ('publish_interval_minutes', 'publish_timeout_seconds'):
                 try:
                     config[config_key] = int(val)
                 except ValueError:
@@ -697,7 +698,69 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         else:
             log('  方式: 立即发布')
 
-        result = publish_to_douyin(**kwargs)
+        timeout_seconds = int(self.config.get('publish_timeout_seconds', 1200))
+        log(f'  发布超时限制: {timeout_seconds // 60} 分钟')
+
+        publish_payload = dict(kwargs)
+        if parsed_publish_date:
+            publish_payload['publish_date'] = parsed_publish_date.isoformat()
+        publish_payload_path = self.proc_dir / 'publish_payload.json'
+        publish_payload_path.write_text(
+            json.dumps(publish_payload, ensure_ascii=False), encoding='utf-8')
+
+        publish_code = r'''
+import json
+import sys
+from pathlib import Path
+from datetime import datetime
+
+payload_path = Path(sys.argv[1])
+src_dir = Path(sys.argv[2])
+sys.path.insert(0, str(src_dir))
+
+from publisher import publish_to_douyin
+
+payload = json.loads(payload_path.read_text(encoding='utf-8'))
+if payload.get('publish_date'):
+    payload['publish_date'] = datetime.fromisoformat(payload['publish_date'])
+result = publish_to_douyin(**payload)
+print('SUYING_PUBLISH_RESULT=' + json.dumps(result, ensure_ascii=False))
+sys.exit(0 if result.get('success') else 2)
+'''
+
+        try:
+            proc = subprocess.run(
+                [sys.executable, '-c', publish_code, str(publish_payload_path), str(SRC_DIR)],
+                cwd=str(BASE),
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            log(f'  发布失败: 抖音发布超过 {timeout_seconds // 60} 分钟, 已停止等待')
+            return
+
+        publish_output = ((proc.stdout or '') + '\n' + (proc.stderr or '')).strip()
+        for line in publish_output.splitlines():
+            if line.startswith('SUYING_PUBLISH_RESULT='):
+                continue
+            if line.strip():
+                log(line.rstrip())
+
+        result = None
+        for line in publish_output.splitlines():
+            if line.startswith('SUYING_PUBLISH_RESULT='):
+                try:
+                    result = json.loads(line.split('=', 1)[1])
+                except Exception:
+                    pass
+        if result is None:
+            result = {
+                'success': False,
+                'message': f'发布进程异常退出, 退出码: {proc.returncode}',
+            }
 
         if result['success']:
             log('  发布成功!')

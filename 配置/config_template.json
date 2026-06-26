@@ -77,6 +77,7 @@
     "pushplus_token": "",
     "auto_publish_douyin": true,
     "publish_interval_minutes": 120,
+    "publish_timeout_seconds": 1200,
     "pub_desc": "#民间故事 #民间传说 #纪实故事 #真实事件 #正能量",
     "transition_enabled": true
 }
