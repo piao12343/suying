@@ -129,6 +129,39 @@ def patch():
         print('[FAIL] step5: description input marker not found')
         ok = False
 
+    # ── 步骤 6: 推荐封面确认框“确定”按钮会被 semi tooltip 浮层挡住 ──
+    confirm_old = (
+        '                        await page.get_by_role("button", name="确定").click()\n'
+        '                        douyin_logger.info(_msg("🥳", "推荐封面已经应用"))'
+    )
+    confirm_new = (
+        '                        await page.evaluate("""\\n'
+        '                        () => document.querySelectorAll(\\n'
+        '                            \'.semi-tooltip-wrapper,.semi-tooltip,.semi-portal .semi-tooltip-wrapper\'\\n'
+        '                        ).forEach(e => e.remove())\\n'
+        '                        """)\n'
+        '                        confirm_btn = page.get_by_role("button", name="确定").first\n'
+        '                        try:\n'
+        '                            await confirm_btn.click(force=True, timeout=8000)\n'
+        '                        except Exception:\n'
+        '                            await page.evaluate("""\\n'
+        '                            () => {\\n'
+        '                                const buttons = [...document.querySelectorAll("button")];\\n'
+        '                                const btn = buttons.find(e => (e.innerText || "").trim() === "确定");\\n'
+        '                                if (btn) btn.click();\\n'
+        '                            }\\n'
+        '                            """)\n'
+        '                        douyin_logger.info(_msg("🥳", "推荐封面已经应用"))'
+    )
+    if '.semi-tooltip-wrapper,.semi-tooltip,.semi-portal .semi-tooltip-wrapper' in code:
+        print('[OK] step6: auto cover confirm tooltip cleanup already patched')
+    elif confirm_old in code:
+        code = code.replace(confirm_old, confirm_new, 1)
+        print('[OK] step6: auto cover confirm button uses tooltip cleanup + force click')
+    else:
+        print('[FAIL] step6: auto cover confirm marker not found')
+        ok = False
+
     if not ok:
         print('\n=== PATCH FAILED: some steps did not match ===')
         sys.exit(1)
