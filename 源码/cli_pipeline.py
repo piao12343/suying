@@ -383,7 +383,9 @@ class Pipeline:
         audio_duration = probe_media_duration(ffmpeg, self.audio_path, estimated_duration)
         target_duration = max(audio_duration, 1.0)
         cover_duration = 2 / fps
-        log(f'  音频基准时长: {target_duration:.1f}s')
+        output_duration = target_duration + cover_duration
+        audio_delay_ms = int(round(cover_duration * 1000))
+        log(f'  音频基准时长: {target_duration:.1f}s, 封面静音: {cover_duration:.3f}s')
 
         # Font config (Linux/Windows compatible)
         fonts_dir = CACHE / 'ffmpeg_fonts'
@@ -458,12 +460,13 @@ class Pipeline:
         log('  [6c] 叠加TTS音频...')
         wa = self.proc_dir / 'video_with_audio.mp4'
         subprocess.run([ffmpeg, '-y', '-i', str(cat), '-i', str(self.audio_path),
-            '-t', f'{target_duration:.3f}', '-c:v', 'libx264', '-preset', 'fast',
-            '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k',
+            '-t', f'{output_duration:.3f}', '-filter:a', f'adelay={audio_delay_ms}:all=1',
+            '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p',
+            '-c:a', 'aac', '-b:a', '128k',
             '-map', '0:v:0', '-map', '1:a:0', str(wa)],
             capture_output=True, text=True, timeout=300, **NW)
 
-        tdur = probe_media_duration(ffmpeg, wa, target_duration)
+        tdur = probe_media_duration(ffmpeg, wa, output_duration)
 
         # 6d: Render title cover
         log('  [6d] 渲染标题封面...')
