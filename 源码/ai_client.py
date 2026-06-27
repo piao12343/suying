@@ -85,6 +85,15 @@ def call_openrouter_chat(config, prompt, max_tokens=4000, retries=2, timeout=180
                         continue
                     break
 
+                content = data.get('choices', [{}])[0].get('message', {}).get('content')
+                if not isinstance(content, str) or not content.strip():
+                    last_error = f'{model}: 模型返回内容为空'
+                    _log(log_func, f'  模型 {model} 尝试{attempt + 1}/{retries} 失败: 模型返回内容为空')
+                    if attempt < retries - 1:
+                        time.sleep(10)
+                        continue
+                    break
+
                 data['_used_model'] = model
                 return data
             except requests.exceptions.Timeout:

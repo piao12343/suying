@@ -241,8 +241,14 @@ class Pipeline:
                 raise RuntimeError('无法获取视频地址')
             wav = CACHE / f'_audio_{vid}.wav'
             try:
+                t0 = time.perf_counter()
+                log('  开始下载视频并提取音频...')
                 download_and_extract_audio(info['video_url'], wav)
+                log(f'  音频提取完成, 用时 {time.perf_counter() - t0:.1f} 秒')
+                log('  开始语音识别...')
+                t0 = time.perf_counter()
                 raw = transcribe_audio(wav)
+                log(f'  语音识别完成, 用时 {time.perf_counter() - t0:.1f} 秒')
             finally:
                 if wav.exists():
                     os.remove(wav)
@@ -278,29 +284,31 @@ class Pipeline:
                 log('  已注入学习偏好')
             prompt += '\n\n' + raw
 
-            log(f'  模型: {self.config["openrouter_model"]}')
-            d = call_openrouter_chat(
-                self.config,
-                prompt,
-                max_tokens=self.config.get('openrouter_max_tokens', 4000),
-                retries=2,
-                timeout=180,
-                log_func=log,
-            )
-            used_model = d.get('_used_model')
-            if used_model and used_model != self.config.get('openrouter_model'):
-                log(f'  实际使用模型: {used_model}')
+            try:
+                log(f'  模型: {self.config["openrouter_model"]}')
+                d = call_openrouter_chat(
+                    self.config,
+                    prompt,
+                    max_tokens=self.config.get('openrouter_max_tokens', 4000),
+                    retries=2,
+                    timeout=180,
+                    log_func=log,
+                )
+                used_model = d.get('_used_model')
+                if used_model and used_model != self.config.get('openrouter_model'):
+                    log(f'  实际使用模型: {used_model}')
 
-            content = d.get('choices', [{}])[0].get('message', {}).get('content')
-            if not isinstance(content, str) or not content.strip():
-                raise RuntimeError('AI改写失败: 模型返回内容为空')
-            txt = content.strip()
-            usage = d.get('usage', {})
-            log(f'  tokens: {usage.get("total_tokens", 0)}, cost: ${usage.get("cost", 0)}')
-            t2 = re.search(r'【标题】\s*\n?(.+)', txt)
-            b2 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt)
-            title = t2.group(1).strip() if t2 else raw[:6]
-            narration = b2.group(1).strip() if b2 else txt
+                txt = d['choices'][0]['message']['content'].strip()
+                usage = d.get('usage', {})
+                log(f'  tokens: {usage.get("total_tokens", 0)}, cost: ${usage.get("cost", 0)}')
+                t2 = re.search(r'【标题】\s*\n?(.+)', txt)
+                b2 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt)
+                title = t2.group(1).strip() if t2 else raw[:6]
+                narration = b2.group(1).strip() if b2 else txt
+            except Exception as e:
+                log(f'  AI改写失败, 使用原文继续: {e}')
+                title = raw[:6].strip() or '民间故事'
+                narration = raw
 
         self.title = title
         self.narration = narration
