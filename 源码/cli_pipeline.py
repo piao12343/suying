@@ -382,6 +382,7 @@ class Pipeline:
         estimated_duration = sum(x['duration'] for x in self.segments)
         audio_duration = probe_media_duration(ffmpeg, self.audio_path, estimated_duration)
         target_duration = max(audio_duration, 1.0)
+        cover_duration = 2 / fps
         log(f'  音频基准时长: {target_duration:.1f}s')
 
         # Font config (Linux/Windows compatible)
@@ -429,11 +430,12 @@ class Pipeline:
             cp = cdir / f"clip_{first_id:02d}.mp4"
             dr = dirs[idx % 4]
             fade_in = 0 if not cfs else trans_dur
+            fade_out = 0 if idx == len(render_items) - 1 else trans_dur
             if create_kenburns_clip(
                 item['image_path'], cp, item['duration'], W, H, fps, ffmpeg, dr,
                 transition_duration=trans_dur,
                 fade_in_duration=fade_in,
-                fade_out_duration=trans_dur,
+                fade_out_duration=fade_out,
             ):
                 cfs.append(str(cp))
                 id_text = f'{item["ids"][0]}-{item["ids"][-1]}' if len(item['ids']) > 1 else str(first_id)
@@ -470,16 +472,18 @@ class Pipeline:
         to = render_dir / 'title.mp4'
         te = self.title.replace("'", "'\\''").replace(":", "\\:")
         title_font_escaped = fonts['title_font'].replace('\\', '\\\\')
-        vf1 = (f"drawbox=x=0:y=890:w=1080:h=170:color=white@0.6:t=fill:enable='between(t,0,1)',"
+        cover_expr = f"lt(t\\,{cover_duration:.4f})"
+        content_expr = f"gte(t\\,{cover_duration:.4f})"
+        vf1 = (f"drawbox=x=0:y=870:w=1080:h=220:color=white@0.6:t=fill:enable='{cover_expr}',"
                f"drawtext=fontfile='{title_font_escaped}':text='{te}'"
                f":fontsize=128:fontcolor=0xFFE600:borderw=9:bordercolor=black"
-               f":x=(w-text_w)/2:y=900:enable='between(t,0,1)',"
+               f":x=(w-text_w)/2:y=905:enable='{cover_expr}',"
                f"drawtext=fontfile='{title_font_escaped}':text='全'"
                f":fontsize=82:fontcolor=0xFFE600:borderw=7:bordercolor=black"
-               f":x=(w-text_w)/2:y=1210:enable='between(t,0,1)',"
+               f":x=(w-text_w)/2:y=1210:enable='{cover_expr}',"
                f"drawtext=fontfile='{title_font_escaped}':text='{te}'"
                f":fontsize=64:fontcolor=0xFFE600:borderw=5:bordercolor=black"
-               f":x=(w-text_w)/2:y=110:enable='gte(t,1)'")
+               f":x=(w-text_w)/2:y=110:enable='{content_expr}'")
         r1 = subprocess.run([ffmpeg, '-y', '-i', str(ss), '-vf', vf1,
             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-c:a', 'copy', str(to)],
             capture_output=True, text=True, env=ff_env, timeout=600, **NW)
@@ -527,15 +531,13 @@ class Pipeline:
 
         def add_evt(start, end, text):
             text = subtitle_text(text)
-            start += 1.0
-            end += 1.0
-            if text and end > start and end > 1.0:
-                start = max(start, 1.0)
+            start = max(start, cover_duration)
+            if text and end > start:
                 bg = (r"{\p1\an7\pos(0,0)\c&HFFFFFF&\alpha&H70&\bord0}"
-                      r"m 190 1270 b 145 1270 110 1305 110 1350 "
-                      r"l 110 1400 b 110 1445 145 1480 190 1480 "
-                      r"l 890 1480 b 935 1480 970 1445 970 1400 "
-                      r"l 970 1350 b 970 1305 935 1270 890 1270")
+                      r"m 225 1285 b 185 1285 155 1315 155 1355 "
+                      r"l 155 1395 b 155 1435 185 1465 225 1465 "
+                      r"l 855 1465 b 895 1465 925 1435 925 1395 "
+                      r"l 925 1355 b 925 1315 895 1285 855 1285")
                 evts.append(f"Dialogue: 0,{ft(start)},{ft(end)},Bubble,,0,0,0,,{bg}")
                 evts.append(f"Dialogue: 1,{ft(start)},{ft(end)},Default,,0,0,0,,{ass_text(text)}")
                 evt_times.append((start, end))
