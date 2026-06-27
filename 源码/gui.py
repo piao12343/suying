@@ -1379,7 +1379,7 @@ class App:
         self.log_q.put(('tab', 1))
 
     def _step3_split(self):
-        from video_pipeline import split_narration
+        from video_pipeline import ai_split_narration, split_narration
         config = load_config()
 
         self._auto_save_edits()
@@ -1389,7 +1389,14 @@ class App:
         self.log('=' * 50)
         self.log('[步骤3/7] 分镜切分...')
 
-        segs = split_narration(self.narration, config.get('num_shots', 10))
+        num_shots = config.get('num_shots', 5)
+        try:
+            self.log(f'  尝试AI按故事情节分镜, 最多 {num_shots} 段...')
+            segs = ai_split_narration(self.narration, config, num_shots, log_func=self.log)
+            self.log('  AI分镜成功')
+        except Exception as e:
+            self.log(f'  AI分镜失败, 使用机械分镜: {e}')
+            segs = split_narration(self.narration, num_shots)
         self.segments = segs
         self.log(f'  共 {len(segs)} 个分镜, 预估 {sum(s["duration"] for s in segs):.0f}秒')
         for s in segs:

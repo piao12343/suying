@@ -40,14 +40,31 @@ def ensure_dir(path):
 
 # ============ 步骤1: 文案分镜切分 ============
 
+def _split_sentences(text):
+    """按中文句子边界切分文本。"""
+    sentences = re.split(r'(?<=[。？！…])\s*', text.strip())
+    return [s.strip() for s in sentences if len(s.strip()) > 1]
+
+
+def _build_segments_from_sentence_groups(sentences, groups):
+    result = []
+    for i, group in enumerate(groups):
+        seg_text = ''.join(sentences[group[0]:group[1]])
+        est_duration = max(len(seg_text) / 3.5, 3.0)
+        result.append({
+            'id': i + 1,
+            'text': seg_text,
+            'duration': round(est_duration, 1),
+        })
+    return result
+
+
 def split_narration(text, num_shots=10):
     """
     将口播文案按句子边界切分为多个分镜段落
     返回: [{"id": 1, "text": "...", "duration": 秒}, ...]
     """
-    # 按中文句号/问号/叹号/省略号分句
-    sentences = re.split(r'(?<=[。？！…])\s*', text.strip())
-    sentences = [s.strip() for s in sentences if len(s.strip()) > 1]
+    sentences = _split_sentences(text)
 
     if not sentences:
         raise ValueError("文案为空, 无法分镜")
@@ -102,6 +119,84 @@ def split_narration(text, num_shots=10):
         })
 
     return result
+
+
+def ai_split_narration(text, config, num_shots=5, max_retries=2, log_func=print):
+    """
+    用AI按故事情节决定分镜边界。
+    AI只返回句子编号范围, 程序用原文拼接, 避免AI改写/删文案。
+    """
+    sentences = _split_sentences(text)
+    if not sentences:
+        raise ValueError("文案为空, 无法分镜")
+
+    if len(sentences) <= 1:
+        return _build_segments_from_sentence_groups(sentences, [(0, len(sentences))])
+
+    sentence_lines = '\n'.join(
+        f'{i + 1}. {sentence}' for i, sentence in enumerate(sentences)
+    )
+    prompt = (
+        "你是民间故事短视频分镜师。下面是按顺序编号的故事句子。\n"
+        "请根据故事情节把它们分成几个连续镜头段落, 适合后续配图和视频画面切换。\n\n"
+        "要求:\n"
+        f"- 最多分成 {num_shots} 段, 不要超过这个数量\n"
+        "- 按剧情阶段分段, 例如开端、矛盾出现、冲突升级、反转、结局\n"
+        "- 必须覆盖全部句子, 不能遗漏、不能重叠、不能打乱顺序\n"
+        "- 只能返回 JSON 数组, 不要解释, 不要 markdown\n"
+        "- JSON 格式示例: [{\"start\":1,\"end\":3},{\"start\":4,\"end\":8}]\n"
+        "- start/end 都是句子编号, end 表示该段最后一句, 包含 end\n\n"
+        f"{sentence_lines}"
+    )
+
+    data = call_openrouter_chat(
+        config,
+        prompt,
+        max_tokens=800,
+        retries=max_retries,
+        timeout=120,
+        log_func=log_func,
+    )
+    used_model = data.get('_used_model')
+    if used_model and used_model != config.get('openrouter_model') and log_func:
+        log_func(f'  AI分镜实际使用模型: {used_model}')
+
+    content = data.get('choices', [{}])[0].get('message', {}).get('content')
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("AI分镜返回内容为空")
+
+    m = re.search(r'\[[\s\S]*\]', content.strip())
+    if not m:
+        raise RuntimeError("AI分镜未返回JSON数组")
+
+    try:
+        raw_groups = json.loads(m.group(0))
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"AI分镜JSON解析失败: {e}") from e
+
+    if not isinstance(raw_groups, list) or not raw_groups:
+        raise RuntimeError("AI分镜结果为空")
+    if len(raw_groups) > num_shots:
+        raise RuntimeError(f"AI分镜超过上限: {len(raw_groups)}/{num_shots}")
+
+    groups = []
+    expected_start = 1
+    for item in raw_groups:
+        if not isinstance(item, dict):
+            raise RuntimeError("AI分镜格式错误: 分段不是对象")
+        start = item.get('start')
+        end = item.get('end')
+        if not isinstance(start, int) or not isinstance(end, int):
+            raise RuntimeError("AI分镜格式错误: start/end 不是整数")
+        if start != expected_start or end < start or end > len(sentences):
+            raise RuntimeError("AI分镜句子范围不连续或越界")
+        groups.append((start - 1, end))
+        expected_start = end + 1
+
+    if expected_start != len(sentences) + 1:
+        raise RuntimeError("AI分镜没有覆盖全部句子")
+
+    return _build_segments_from_sentence_groups(sentences, groups)
 
 
 # ============ 步骤2: 提取图片搜索关键词 ============
