@@ -561,7 +561,8 @@ def create_kenburns_clip(image_path, output_path, duration, width, height, fps,
         '-pix_fmt', 'yuv420p',
         str(output_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, **NW)
+    timeout_seconds = max(120, int(duration * 3))
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds, **NW)
     # 清理预处理图片
     if os.path.exists(prep_path):
         os.remove(prep_path)
