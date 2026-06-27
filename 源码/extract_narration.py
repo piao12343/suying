@@ -10,6 +10,7 @@ import json
 import requests
 import subprocess
 import tempfile
+import time
 import urllib3
 from pathlib import Path
 
@@ -133,6 +134,7 @@ def get_video_info(video_id):
 
 def download_and_extract_audio(video_url, output_path):
     """Download video and extract audio"""
+    started = time.perf_counter()
     print(f"[3/4] 下载视频并提取音频...")
 
     def extract_from_input(input_path):
@@ -163,7 +165,8 @@ def download_and_extract_audio(video_url, output_path):
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, **NW)
     if result.returncode == 0:
-        print(f"   音频已保存: {output_path}")
+        elapsed = time.perf_counter() - started
+        print(f"   音频已保存: {output_path} (用时 {elapsed:.1f} 秒)")
         return
 
     print(f"ffmpeg 直连失败, 尝试 requests 备用下载: {result.stderr[-300:]}")
@@ -202,7 +205,8 @@ def download_and_extract_audio(video_url, output_path):
                 print(f"   备用下载成功: {total / 1024 / 1024:.1f} MB")
                 local_result = extract_from_input(tmp_video)
                 if local_result.returncode == 0:
-                    print(f"   音频已保存: {output_path}")
+                    elapsed = time.perf_counter() - started
+                    print(f"   音频已保存: {output_path} (用时 {elapsed:.1f} 秒)")
                     return
                 last_error = local_result.stderr[-300:]
                 print(f"   本地音频提取失败: {last_error}")
@@ -221,6 +225,7 @@ def download_and_extract_audio(video_url, output_path):
 
 def transcribe_audio(audio_path):
     """Speech recognition via faster-whisper"""
+    started = time.perf_counter()
     print(f"[4/4] 语音识别中（首次运行需下载模型，请耐心等待）...")
     from faster_whisper import WhisperModel
 
@@ -235,6 +240,8 @@ def transcribe_audio(audio_path):
 
     print(f"   检测到语言: {info.language} (概率: {info.language_probability:.2f})")
     print(f"   音频时长: {info.duration:.1f}秒")
+    if info.duration >= 300:
+        print("   检测到长视频, 语音识别会比较久, 请耐心等待...")
 
     full_text = []
     for segment in segments:
@@ -245,6 +252,8 @@ def transcribe_audio(audio_path):
             progress = segment.end / info.duration * 100
             print(f"   [{progress:5.1f}%] {text}")
 
+    elapsed = time.perf_counter() - started
+    print(f"   语音识别完成, 用时 {elapsed:.1f} 秒")
     return '\n'.join(full_text)
 
 
