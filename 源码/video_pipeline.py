@@ -164,8 +164,12 @@ def ai_extract_image_keywords(segments, config, max_retries=2, learning_context=
         print(f"   AI提取关键词失败: {e}")
         return {}
 
-    # 解析AI返回的关键词
-    text_resp = data['choices'][0]['message']['content'].strip()
+    # 解析AI返回的关键词。免费模型偶尔会返回 content=None, 此时回退静态关键词。
+    content = data.get('choices', [{}])[0].get('message', {}).get('content')
+    if not isinstance(content, str) or not content.strip():
+        print("   AI提取关键词失败: 模型返回内容为空")
+        return {}
+    text_resp = content.strip()
     result = {}
     for line in text_resp.split('\n'):
         line = line.strip()

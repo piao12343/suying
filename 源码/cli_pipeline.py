@@ -291,7 +291,10 @@ class Pipeline:
             if used_model and used_model != self.config.get('openrouter_model'):
                 log(f'  实际使用模型: {used_model}')
 
-            txt = d['choices'][0]['message']['content'].strip()
+            content = d.get('choices', [{}])[0].get('message', {}).get('content')
+            if not isinstance(content, str) or not content.strip():
+                raise RuntimeError('AI改写失败: 模型返回内容为空')
+            txt = content.strip()
             usage = d.get('usage', {})
             log(f'  tokens: {usage.get("total_tokens", 0)}, cost: ${usage.get("cost", 0)}')
             t2 = re.search(r'【标题】\s*\n?(.+)', txt)
