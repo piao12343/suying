@@ -501,39 +501,43 @@ def create_kenburns_clip(image_path, output_path, duration, width, height, fps,
     prepare_image(image_path, prep_path, width, height, ffmpeg_path)
 
     if direction == 'zoom_in':
-        # 缓慢放大: 从1.0到1.3倍
+        # 短视频风格: 轻微推近, 保持高清稳定, 避免PPT式大幅缩放。
         zp = (
-            f"zoompan=z='min(zoom+0.001,1.3)'"
+            f"zoompan=z='min(zoom+0.00045,1.14)'"
             f":x='iw/2-(iw/zoom/2)'"
             f":y='ih/2-(ih/zoom/2)'"
             f":d={total_frames}:s={width}x{height}:fps={fps}"
         )
     elif direction == 'zoom_out':
-        # 缓慢缩小: 从1.3到1.0倍
+        # 轻微拉远。
         zp = (
-            f"zoompan=z='if(eq(on,1),1.3,max(zoom-0.001,1.0))'"
+            f"zoompan=z='if(eq(on,1),1.14,max(zoom-0.00045,1.0))'"
             f":x='iw/2-(iw/zoom/2)'"
             f":y='ih/2-(ih/zoom/2)'"
             f":d={total_frames}:s={width}x{height}:fps={fps}"
         )
     elif direction == 'pan_left':
-        # 从左往右平移
+        # 轻微横移, 不做夸张滑动。
         zp = (
-            f"zoompan=z='1.2'"
-            f":x='if(eq(on,1),0,min(x+2,iw-iw/zoom))'"
+            f"zoompan=z='1.10'"
+            f":x='if(eq(on,1),0,min(x+0.9,iw-iw/zoom))'"
             f":y='ih/2-(ih/zoom/2)'"
             f":d={total_frames}:s={width}x{height}:fps={fps}"
         )
     else:  # pan_right
         zp = (
-            f"zoompan=z='1.2'"
-            f":x='if(eq(on,1),iw-iw/zoom,max(x-2,0))'"
+            f"zoompan=z='1.10'"
+            f":x='if(eq(on,1),iw-iw/zoom,max(x-0.9,0))'"
             f":y='ih/2-(ih/zoom/2)'"
             f":d={total_frames}:s={width}x{height}:fps={fps}"
         )
 
     # 构建视频滤镜链
-    vf = f"{zp},format=yuv420p"
+    visual_style = (
+        "eq=brightness=0.025:contrast=1.08:saturation=1.16,"
+        "unsharp=5:5:0.45:3:3:0.15"
+    )
+    vf = f"{zp},{visual_style},format=yuv420p"
     if fade_in_duration is None:
         fade_in_duration = transition_duration
     if fade_out_duration is None:
