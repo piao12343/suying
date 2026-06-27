@@ -14,6 +14,7 @@ DEFAULT_SAU_DIR = PROJECT_ROOT / '配置' / 'social-auto-upload'
 FALLBACK_SAU_DIR = Path(r'D:\Personal\Desktop\social-auto-upload')
 COOKIE_PATH = PROJECT_ROOT / '配置' / 'cookies' / 'douyin_creator.json'
 GITHUB_REPO = 'piao12343/suying'
+ACCOUNT_NAME = 'creator'
 
 
 def pick_sau_dir():
@@ -65,6 +66,61 @@ def sync_cookie_to_github(cookie_path):
     return True
 
 
+def sau_cookie_path():
+    return SAU_DIR / 'cookies' / f'douyin_{ACCOUNT_NAME}.json'
+
+
+def run_sau_command(args, timeout=None):
+    sau_cli = SAU_DIR / 'sau_cli.py'
+    if not sau_cli.exists():
+        return None
+    return subprocess.run(
+        [sys.executable, str(sau_cli), *args],
+        cwd=str(SAU_DIR),
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        timeout=timeout,
+    )
+
+
+def refresh_with_sau_cli():
+    sau_cli = SAU_DIR / 'sau_cli.py'
+    if not sau_cli.exists():
+        return False
+
+    account_cookie = sau_cookie_path()
+    account_cookie.parent.mkdir(parents=True, exist_ok=True)
+
+    if COOKIE_PATH.exists() and not account_cookie.exists():
+        shutil.copyfile(COOKIE_PATH, account_cookie)
+
+    print(f'使用 social-auto-upload CLI 刷新账号: {ACCOUNT_NAME}')
+    print('即将打开浏览器, 请完成抖音扫码登录。')
+    login_result = run_sau_command(
+        ['douyin', 'login', '--account', ACCOUNT_NAME, '--headed']
+    )
+    if login_result is None or login_result.returncode != 0:
+        print('social-auto-upload CLI 登录失败。')
+        return False
+
+    check_result = run_sau_command(
+        ['douyin', 'check', '--account', ACCOUNT_NAME],
+        timeout=180,
+    )
+    if check_result is None or check_result.returncode != 0:
+        print('登录后 Cookie 校验未通过。')
+        return False
+
+    if not account_cookie.exists() or account_cookie.stat().st_size < 50:
+        print(f'账号 Cookie 文件不存在或内容过小: {account_cookie}')
+        return False
+
+    COOKIE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(account_cookie, COOKIE_PATH)
+    return True
+
+
 def main():
     print('=' * 50)
     print(' 速影 - 抖音 Cookie 刷新工具')
@@ -74,33 +130,9 @@ def main():
     print('登录成功后, cookie 会自动保存到本地并同步到云端 GitHub Secret。')
     print()
 
-    try:
-        from uploader.douyin_uploader.main import douyin_setup
-    except ImportError as e:
-        print(f'导入失败: {e}')
-        print(f'请确认 social-auto-upload 目录正确: {SAU_DIR}')
-        sys.exit(1)
-
-    import asyncio
-
     cookie_file = str(COOKIE_PATH)
 
-    async def _login():
-        result = await douyin_setup(
-            cookie_file,
-            handle=True,
-            return_detail=True,
-            headless=False,
-        )
-        return result
-
-    loop = asyncio.new_event_loop()
-    try:
-        result = loop.run_until_complete(_login())
-    finally:
-        loop.close()
-
-    if isinstance(result, dict) and result.get('success'):
+    if refresh_with_sau_cli():
         print()
         print('登录成功! Cookie 已保存。')
         print()
@@ -114,7 +146,7 @@ def main():
             print('本地 Cookie 已保存, 但云端同步失败。')
             sys.exit(1)
     else:
-        print(f'登录失败: {result}')
+        print('登录失败: social-auto-upload CLI 未能生成有效 Cookie')
         sys.exit(1)
 
 
