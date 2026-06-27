@@ -158,12 +158,15 @@ jobs:
             rm -rf 配置/social-auto-upload
             git clone --depth 1 https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
           else
-            echo "Using cached social-auto-upload"
+            cd 配置/social-auto-upload
+            git fetch --depth 1 origin main
+            git reset --hard origin/main
+            cd "${{ github.workspace }}"
           fi
           cd 配置/social-auto-upload
           cp conf.example.py conf.py
           python "${{ github.workspace }}/源码/cloud_patch_sau.py"
-          pip install -r requirements.txt
+          pip install -r requirements.txt || pip install -e .
           pip install patchright opencv-python-headless segno
           python -m patchright install chromium
           python -m patchright install-deps chromium

@@ -7,6 +7,8 @@ import sys
 import json
 import asyncio
 import io
+import shutil
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -19,7 +21,8 @@ if sys.stderr is None:
     sys.stderr = io.StringIO()
 
 # social-auto-upload path: env var > repo sibling dir
-SAU_DIR = Path(os.environ.get('SAU_DIR', str(Path(__file__).resolve().parent.parent / '配置' / 'social-auto-upload')))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SAU_DIR = Path(os.environ.get('SAU_DIR', str(PROJECT_ROOT / '配置' / 'social-auto-upload')))
 if str(SAU_DIR) not in sys.path:
     sys.path.insert(0, str(SAU_DIR))
 
@@ -27,9 +30,28 @@ if str(SAU_DIR) not in sys.path:
 (SAU_DIR / 'logs').mkdir(parents=True, exist_ok=True)
 
 # Cookie storage dir
-COOKIE_DIR = Path(__file__).resolve().parent.parent / '配置' / 'cookies'
+COOKIE_DIR = PROJECT_ROOT / '配置' / 'cookies'
 COOKIE_DIR.mkdir(parents=True, exist_ok=True)
 DOUYIN_COOKIE_FILE = COOKIE_DIR / 'douyin_creator.json'
+SAU_ACCOUNT_NAME = os.environ.get('SUYING_DOUYIN_ACCOUNT', 'creator')
+SAU_COOKIE_FILE = SAU_DIR / 'cookies' / f'douyin_{SAU_ACCOUNT_NAME}.json'
+SAU_CLI_FILE = SAU_DIR / 'sau_cli.py'
+
+
+def _sync_cookie_to_sau():
+    """Copy Suying's cookie file to social-auto-upload CLI's account path."""
+    if not DOUYIN_COOKIE_FILE.exists():
+        return False
+    SAU_COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(DOUYIN_COOKIE_FILE, SAU_COOKIE_FILE)
+    return True
+
+
+def _sync_cookie_from_sau():
+    """Copy refreshed CLI cookie back to Suying's cookie file when available."""
+    if SAU_COOKIE_FILE.exists() and SAU_COOKIE_FILE.stat().st_size > 50:
+        COOKIE_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(SAU_COOKIE_FILE, DOUYIN_COOKIE_FILE)
 
 
 def check_douyin_login():
@@ -133,6 +155,57 @@ def publish_to_douyin(video_path, title, tags=None, description=None,
     description = description or title
     publish_date = publish_date or datetime.now()
 
+    if SAU_CLI_FILE.exists():
+        try:
+            if not _sync_cookie_to_sau():
+                return {'success': False, 'message': '未登录, 请先扫码登录抖音'}
+
+            cmd = [
+                sys.executable,
+                str(SAU_CLI_FILE),
+                'douyin',
+                'upload-video',
+                '--account', SAU_ACCOUNT_NAME,
+                '--file', video_path,
+                '--title', title[:30],
+                '--desc', description,
+                '--headless' if headless else '--headed',
+            ]
+            if tags:
+                cmd.extend(['--tags', ','.join(str(tag).strip().lstrip('#') for tag in tags if str(tag).strip())])
+            if publish_strategy == 'scheduled' and isinstance(publish_date, datetime):
+                cmd.extend(['--schedule', publish_date.strftime('%Y-%m-%d %H:%M')])
+            if thumbnail_portrait_path and os.path.exists(str(thumbnail_portrait_path)):
+                cmd.extend(['--thumbnail-portrait', str(thumbnail_portrait_path)])
+            if thumbnail_landscape_path and os.path.exists(str(thumbnail_landscape_path)):
+                cmd.extend(['--thumbnail-landscape', str(thumbnail_landscape_path)])
+            if debug:
+                cmd.append('--debug')
+
+            env = os.environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
+            result = subprocess.run(
+                cmd,
+                cwd=str(SAU_DIR),
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=None,
+                env=env,
+            )
+            output = ((result.stdout or '') + '\n' + (result.stderr or '')).strip()
+            _sync_cookie_from_sau()
+            if result.returncode == 0:
+                return {'success': True, 'message': '发布成功'}
+            return {
+                'success': False,
+                'message': output[-1200:] if output else f'social-auto-upload CLI 退出码: {result.returncode}',
+            }
+        except Exception as e:
+            return {'success': False, 'message': f'social-auto-upload CLI 发布失败: {e}'}
+
+    # Fallback for older local social-auto-upload clones that do not have sau_cli.py.
     try:
         from uploader.douyin_uploader.main import DouYinVideo
 
