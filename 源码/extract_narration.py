@@ -42,6 +42,9 @@ HEADERS = {
                   'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 '
                   'Mobile/15E148 Safari/604.1',
     'Referer': 'https://www.douyin.com/',
+    'Accept': '*/*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Connection': 'keep-alive',
 }
 
 
@@ -131,11 +134,26 @@ def get_video_info(video_id):
 def download_and_extract_audio(video_url, output_path):
     """Download video and extract audio"""
     print(f"[3/4] 下载视频并提取音频...")
-    # Use ffmpeg to download and extract audio in one step
+
+    def extract_from_input(input_path):
+        cmd = [
+            FFMPEG_PATH,
+            '-y',
+            '-i', str(input_path),
+            '-vn',           # no video
+            '-acodec', 'pcm_s16le',  # WAV format, better for whisper
+            '-ar', '16000',  # 16kHz, Whisper standard
+            '-ac', '1',      # mono
+            str(output_path),
+        ]
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=120, **NW)
+
+    # Prefer ffmpeg direct read. If Douyin blocks it with 403, fall back to
+    # requests download so we can control headers and retries more precisely.
     cmd = [
         FFMPEG_PATH,
         '-y',
-        '-headers', f'User-Agent: {HEADERS["User-Agent"]}\r\nReferer: {HEADERS["Referer"]}\r\n',
+        '-headers', ''.join(f'{k}: {v}\r\n' for k, v in HEADERS.items()),
         '-i', video_url,
         '-vn',           # no video
         '-acodec', 'pcm_s16le',  # WAV format, better for whisper
@@ -144,10 +162,61 @@ def download_and_extract_audio(video_url, output_path):
         str(output_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, **NW)
-    if result.returncode != 0:
-        print(f"ffmpeg 错误: {result.stderr[-500:]}")
-        raise Exception("音频提取失败")
-    print(f"   音频已保存: {output_path}")
+    if result.returncode == 0:
+        print(f"   音频已保存: {output_path}")
+        return
+
+    print(f"ffmpeg 直连失败, 尝试 requests 备用下载: {result.stderr[-300:]}")
+
+    tmp_video = Path(tempfile.mkstemp(prefix='douyin_video_', suffix='.mp4', dir=str(WORK_DIR))[1])
+    try:
+        last_error = ''
+        for attempt in range(1, 4):
+            try:
+                headers = dict(HEADERS)
+                headers['Range'] = 'bytes=0-'
+                resp = requests.get(
+                    video_url,
+                    headers=headers,
+                    stream=True,
+                    timeout=45,
+                    allow_redirects=True,
+                    verify=False,
+                )
+                if resp.status_code not in (200, 206):
+                    last_error = f'HTTP {resp.status_code}'
+                    print(f"   备用下载尝试{attempt}/3失败: {last_error}")
+                    continue
+
+                total = 0
+                with tmp_video.open('wb') as f:
+                    for chunk in resp.iter_content(chunk_size=1024 * 256):
+                        if chunk:
+                            f.write(chunk)
+                            total += len(chunk)
+                if total < 10000:
+                    last_error = f'文件过小: {total} bytes'
+                    print(f"   备用下载尝试{attempt}/3失败: {last_error}")
+                    continue
+
+                print(f"   备用下载成功: {total / 1024 / 1024:.1f} MB")
+                local_result = extract_from_input(tmp_video)
+                if local_result.returncode == 0:
+                    print(f"   音频已保存: {output_path}")
+                    return
+                last_error = local_result.stderr[-300:]
+                print(f"   本地音频提取失败: {last_error}")
+            except Exception as e:
+                last_error = str(e)
+                print(f"   备用下载尝试{attempt}/3异常: {last_error}")
+
+        raise Exception(f"音频提取失败: {last_error}")
+    finally:
+        try:
+            if tmp_video.exists():
+                tmp_video.unlink()
+        except Exception:
+            pass
 
 
 def transcribe_audio(audio_path):
