@@ -3,7 +3,6 @@ import json
 import os
 import re
 import sys
-import time
 import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -66,8 +65,6 @@ def post_log(lines, status="running", reset=False):
 
 
 def stream_stdin():
-    buffer = []
-    last_flush = time.time()
     saw_failure = False
     post_log(["GitHub Actions 已进入视频处理步骤。"], "running")
 
@@ -76,15 +73,7 @@ def stream_stdin():
         print(text, flush=True)
         if any(pattern in text for pattern in FAILURE_PATTERNS):
             saw_failure = True
-        buffer.append(text)
-        now = time.time()
-        if len(buffer) >= 20 or now - last_flush >= 3:
-            post_log(buffer, "running")
-            buffer = []
-            last_flush = now
-
-    if buffer:
-        post_log(buffer, "running")
+        post_log([text], "running")
 
     if saw_failure:
         post_log(["检测到失败日志, 标记云端任务失败。"], "failed")
