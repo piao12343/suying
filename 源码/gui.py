@@ -1637,12 +1637,6 @@ class App:
             text = subtitle_text(text)
             start = max(start, cover_duration)
             if text and end > start:
-                bg = (r"{\p1\an7\pos(0,0)\c&HFFFFFF&\alpha&H70&\bord0}"
-                      r"m 225 1285 b 185 1285 155 1315 155 1355 "
-                      r"l 155 1395 b 155 1435 185 1465 225 1465 "
-                      r"l 855 1465 b 895 1465 925 1435 925 1395 "
-                      r"l 925 1355 b 925 1315 895 1285 855 1285")
-                evts.append(f"Dialogue: 0,{ft(start)},{ft(end)},Bubble,,0,0,0,,{bg}")
                 evts.append(f"Dialogue: 1,{ft(start)},{ft(end)},Default,,0,0,0,,{ass_text(text)}")
                 evt_times.append((start, end))
 
@@ -1705,7 +1699,6 @@ PlayResY: 1920
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV
 Style: Default,Microsoft YaHei,86,&H0000E6FF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,8,0,2,120,120,500
-Style: Bubble,Microsoft YaHei,86,&H00FFFFFF,&H000000FF,&H00000000,&H00FFFFFF,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
