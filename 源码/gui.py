@@ -937,7 +937,7 @@ class App:
 
         def do_publish():
             try:
-                from publisher import publish_to_douyin, check_douyin_login
+                from publisher import publish_to_douyin, check_douyin_login, split_douyin_tags
 
                 self.log('=' * 50)
                 self.log('[发布] 准备发布到抖音...')
@@ -954,8 +954,8 @@ class App:
                 kwargs = dict(
                     video_path=video_path,
                     title=title,
-                    tags=[],
-                    description=desc,
+                    tags=split_douyin_tags(desc),
+                    description='',
                     headless=False,
                     debug=True
                 )
@@ -1781,7 +1781,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             self.log('=' * 50)
             self.log('[自动发布] 准备发布到抖音...')
 
-            from publisher import publish_to_douyin, check_douyin_login
+            from publisher import publish_to_douyin, check_douyin_login, split_douyin_tags
 
             if not check_douyin_login():
                 self.log('抖音未登录或 cookie 已失效, 跳过自动发布')
@@ -1798,8 +1798,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             kwargs = dict(
                 video_path=str(video_path),
                 title=title,
-                tags=[],
-                description=desc,
+                tags=split_douyin_tags(desc),
+                description='',
                 headless=True,
                 debug=False,
                 thumbnail_portrait_path=self.cover_portrait_path,

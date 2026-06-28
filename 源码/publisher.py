@@ -38,6 +38,18 @@ SAU_COOKIE_FILE = SAU_DIR / 'cookies' / f'douyin_{SAU_ACCOUNT_NAME}.json'
 SAU_CLI_FILE = SAU_DIR / 'sau_cli.py'
 
 
+def split_douyin_tags(text):
+    """Extract Douyin topic tags from config text like '#民间故事#正能量'."""
+    if not text:
+        return []
+    tags = []
+    for item in str(text).replace('＃', '#').split('#'):
+        tag = item.strip()
+        if tag:
+            tags.append(tag)
+    return tags
+
+
 def _sync_cookie_to_sau():
     """Copy Suying's cookie file to social-auto-upload CLI's account path."""
     if not DOUYIN_COOKIE_FILE.exists():
@@ -152,7 +164,7 @@ def publish_to_douyin(video_path, title, tags=None, description=None,
         return {'success': False, 'message': '未登录, 请先扫码登录抖音'}
 
     tags = tags or []
-    description = description or title
+    description = title if description is None else description
     publish_date = publish_date or datetime.now()
 
     if SAU_CLI_FILE.exists():

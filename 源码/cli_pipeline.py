@@ -689,7 +689,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         log('[步骤7/7] 自动发布到抖音...')
 
         try:
-            from publisher import publish_to_douyin, check_douyin_login
+            from publisher import publish_to_douyin, check_douyin_login, split_douyin_tags
         except ImportError as e:
             log(f'发布模块导入失败 (social-auto-upload 可能未安装): {e}')
             return
@@ -724,8 +724,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         kwargs = dict(
             video_path=str(video_path),
             title=title[:30],
-            tags=[],
-            description=desc,
+            tags=split_douyin_tags(desc),
+            description='',
             publish_strategy=publish_strategy,
             publish_date=parsed_publish_date,
             headless=True,
