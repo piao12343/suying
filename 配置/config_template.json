@@ -1,11 +1,10 @@
 {
     "openrouter_api_key": "",
-    "openrouter_model": "google/gemma-4-31b-it:free",
-    "openrouter_base_url": "https://openrouter.ai/api/v1/chat/completions",
+    "openrouter_model": "gpt-5.4-mini",
+    "openrouter_base_url": "https://ai-pixel.online/v1/chat/completions",
     "openrouter_fallback_models": [
-        "qwen/qwen3-next-80b-a3b-instruct:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "openrouter/free"
+        "gpt-5.4",
+        "gpt-5.3-codex"
     ],
     "openrouter_max_tokens": 4000,
     "rewrite_template": "ai_rewrite_prompt.txt",
