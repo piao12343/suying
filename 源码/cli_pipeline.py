@@ -155,7 +155,7 @@ def get_font_config():
     else:
         # Linux (GitHub Actions ubuntu-latest)
         return {
-            'title_font': "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            'title_font': "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
             'subtitle_font': 'Noto Sans CJK SC',
             'fonts_dir': '/usr/share/fonts',
             'fonts_cachedir': '/tmp/fontconfig_cache',
