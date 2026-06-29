@@ -19,7 +19,6 @@ FAILURE_PATTERNS = (
     "Traceback",
     "Exception:",
     "Error opening input",
-    "HTTP 403",
 )
 IMPORTANT_PATTERNS = (
     "GitHub Actions 已取到链接",
@@ -146,6 +145,16 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 TEXT_ANSI_RE = re.compile(r"\^\[\[[0-9;?]*[ -/]*[@-~]")
 GITHUB_TS_PREFIX_RE = re.compile(r"^[^	]*	[^	]*	\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*")
 LOGURU_MESSAGE_RE = re.compile(r"(?:INFO|SUCCESS|WARNING|ERROR):\s*(.+)$")
+STEP_RE = re.compile(r"\[步骤(\d)/7\]\s*(.+)")
+TITLE_RE = re.compile(r"标题:\s*(.+)")
+AUTHOR_RE = re.compile(r"作者:\s*(.+)")
+LINK_RE = re.compile(r"链接:\s*(https?://\S+)")
+NARRATION_LEN_RE = re.compile(r"文案长度:\s*(\d+)\s*字")
+ASR_DONE_RE = re.compile(r"语音识别完成,?\s*用时\s*([0-9.]+)\s*秒")
+REWRITE_LEN_RE = re.compile(r"改写文案:\s*(\d+)\s*字")
+SEGMENT_COUNT_RE = re.compile(r"共\s*(\d+)\s*个分镜")
+AUDIO_DURATION_RE = re.compile(r"音频基准时长:\s*([0-9.]+)s")
+VIDEO_SIZE_RE = re.compile(r"大小:\s*([0-9.]+)\s*MB")
 
 
 def debug_enabled():
@@ -202,6 +211,184 @@ def should_keep_line(text):
     if is_important_line(text):
         return True
     return False
+
+
+class LogSummarizer:
+    def __init__(self):
+        self.current_step = None
+        self.link = ""
+        self.author = ""
+        self.title = ""
+        self.asr_seconds = ""
+        self.narration_chars = ""
+        self.rewrite_chars = ""
+        self.segment_count = ""
+        self.audio_duration = ""
+        self.video_size = ""
+        self.seen_search_done = False
+        self.seen_publish_upload = False
+
+    def consume(self, text):
+        outputs = []
+        urgent = False
+
+        step_match = STEP_RE.search(text)
+        if step_match:
+            step_num = int(step_match.group(1))
+            step_name = step_match.group(2).strip().rstrip(".。")
+            self.current_step = step_num
+            if step_num == 1:
+                outputs.append("步骤1/7：正在提取原视频文案")
+            elif step_num == 2:
+                outputs.append("步骤2/7：正在 AI 改写文案")
+            elif step_num == 3:
+                outputs.append("步骤3/7：正在按故事情节分镜")
+            elif step_num == 4:
+                outputs.append("步骤4/7：正在搜索配图")
+            elif step_num == 5:
+                outputs.append("步骤5/7：正在合成配音")
+            elif step_num == 6:
+                outputs.append("步骤6/7：正在渲染视频")
+            elif step_num == 7:
+                outputs.append("步骤7/7：正在发布到抖音")
+                urgent = True
+            else:
+                outputs.append(f"步骤{step_num}/7：{step_name}")
+            return outputs, urgent
+
+        link_match = LINK_RE.search(text)
+        if link_match:
+            self.link = link_match.group(1)
+            return [], False
+
+        author_match = AUTHOR_RE.search(text)
+        if author_match:
+            self.author = author_match.group(1).strip()
+            if self.link:
+                outputs.append(f"原视频信息：作者 {self.author}，链接 {self.link}")
+            else:
+                outputs.append(f"原视频信息：作者 {self.author}")
+            return outputs, False
+
+        asr_match = ASR_DONE_RE.search(text)
+        if asr_match:
+            self.asr_seconds = asr_match.group(1)
+            return [], False
+
+        narration_match = NARRATION_LEN_RE.search(text)
+        if narration_match:
+            self.narration_chars = narration_match.group(1)
+            if self.asr_seconds:
+                outputs.append(f"步骤1完成：语音识别完成，文案长度 {self.narration_chars} 字，用时 {self.asr_seconds} 秒")
+            else:
+                outputs.append(f"步骤1完成：语音识别完成，文案长度 {self.narration_chars} 字")
+            return outputs, False
+
+        title_match = TITLE_RE.search(text)
+        if title_match:
+            self.title = title_match.group(1).strip()
+            if self.current_step == 2:
+                return [], False
+            if self.current_step == 7:
+                outputs.append(f"发布信息：标题 {self.title}")
+                urgent = True
+            return outputs, urgent
+
+        rewrite_match = REWRITE_LEN_RE.search(text)
+        if rewrite_match:
+            self.rewrite_chars = rewrite_match.group(1)
+            title_part = f"，标题《{self.title}》" if self.title else ""
+            outputs.append(f"步骤2完成：AI 改写完成{title_part}，文案 {self.rewrite_chars} 字")
+            return outputs, False
+
+        segment_match = SEGMENT_COUNT_RE.search(text)
+        if segment_match:
+            self.segment_count = segment_match.group(1)
+            outputs.append(f"步骤3完成：已分成 {self.segment_count} 个分镜")
+            return outputs, False
+
+        if "AI关键词提取完成" in text or "AI成功提取" in text:
+            if not self.seen_search_done:
+                self.seen_search_done = True
+                outputs.append("步骤4进度：配图关键词已生成")
+            return outputs, False
+
+        if "TTS语音合成" in text:
+            return [], False
+
+        if "词边界:" in text:
+            outputs.append("步骤5完成：配音已生成")
+            return outputs, False
+
+        audio_match = AUDIO_DURATION_RE.search(text)
+        if audio_match:
+            self.audio_duration = audio_match.group(1)
+            outputs.append(f"步骤6进度：开始渲染，音频时长 {self.audio_duration} 秒")
+            return outputs, False
+
+        if any(part in text for part in ("[6b]", "[6c]", "[6d]", "[6e]", "[6f]")):
+            label = text.split("]", 1)[-1].strip() if "]" in text else text
+            outputs.append(f"步骤6进度：{label}")
+            return outputs, False
+
+        size_match = VIDEO_SIZE_RE.search(text)
+        if size_match:
+            self.video_size = size_match.group(1)
+            outputs.append(f"步骤6完成：视频已生成，大小 {self.video_size} MB")
+            return outputs, False
+
+        if "方式:" in text:
+            outputs.append(text.strip())
+            return outputs, True
+
+        if "发布超时限制" in text:
+            outputs.append(text.strip())
+            return outputs, True
+
+        if "上传前检查通过" in text:
+            outputs.append("发布进度：上传前检查通过")
+            return outputs, True
+
+        if "正在赶往上传主页" in text:
+            outputs.append("发布进度：正在打开抖音上传页")
+            return outputs, True
+
+        if "正在努力上传视频" in text:
+            if not self.seen_publish_upload:
+                self.seen_publish_upload = True
+                outputs.append("发布进度：正在上传视频")
+            return outputs, True
+
+        if "正在设置视频封面" in text:
+            outputs.append("发布进度：正在设置封面")
+            return outputs, True
+
+        if "封面" in text and ("上传" in text or "关闭" in text or "完成" in text):
+            outputs.append(f"发布进度：{text}")
+            return outputs, True
+
+        if "视频发布成功" in text or "发布成功" in text:
+            outputs.append("步骤7完成：抖音发布成功")
+            return outputs, True
+
+        if "云端任务完成" in text:
+            outputs.append("云端任务完成")
+            return outputs, True
+
+        if (
+            "备用下载尝试" in text
+            or "ffmpeg直连失败" in text
+            or "Error opening input file" in text
+            or "Error opening input files" in text
+            or "Error opening input:" in text
+        ):
+            return [], False
+
+        if is_failure_line(text):
+            outputs.append(text)
+            return outputs, True
+
+        return [], False
 
 
 def post_log(lines, status="running", reset=False):
@@ -276,6 +463,7 @@ def stream_stdin():
     saw_failure = False
     buffer = TimedLogBuffer()
     last_kept = ""
+    summarizer = LogSummarizer()
     post_log(["GitHub Actions 已进入视频处理步骤。"], "running")
 
     try:
@@ -285,16 +473,19 @@ def stream_stdin():
             text = clean_line(raw)
             if not should_keep_line(text):
                 continue
-            if text == last_kept:
-                continue
-            last_kept = text
             if is_failure_line(text):
                 saw_failure = True
-                buffer.add_urgent(text, "failed")
-            elif is_urgent_line(text):
-                buffer.add_urgent(text, "running")
-            else:
-                buffer.add(text)
+            outputs, urgent = summarizer.consume(text)
+            for output in outputs:
+                if output == last_kept:
+                    continue
+                last_kept = output
+                if is_failure_line(output):
+                    buffer.add_urgent(output, "failed")
+                elif urgent or is_urgent_line(output):
+                    buffer.add_urgent(output, "running")
+                else:
+                    buffer.add(output)
     finally:
         buffer.close()
 
