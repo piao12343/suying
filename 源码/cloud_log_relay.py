@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import threading
+import time
 import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -139,6 +140,7 @@ NOISE_PATTERNS = (
     "built with",
 )
 FLUSH_INTERVAL_SECONDS = 5.0
+HEARTBEAT_INTERVAL_SECONDS = 300.0
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 TIME_PREFIX_RE = re.compile(r"^\[\d{2}:\d{2}:\d{2}\]")
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
@@ -216,6 +218,7 @@ def should_keep_line(text):
 class LogSummarizer:
     def __init__(self):
         self.current_step = None
+        self.current_status = ""
         self.link = ""
         self.author = ""
         self.title = ""
@@ -238,22 +241,31 @@ class LogSummarizer:
             step_name = step_match.group(2).strip().rstrip(".。")
             self.current_step = step_num
             if step_num == 1:
+                status = "步骤1/7 正在提取原视频文案"
                 outputs.append("步骤1/7：正在提取原视频文案")
             elif step_num == 2:
+                status = "步骤2/7 正在 AI 改写文案"
                 outputs.append("步骤2/7：正在 AI 改写文案")
             elif step_num == 3:
+                status = "步骤3/7 正在按故事情节分镜"
                 outputs.append("步骤3/7：正在按故事情节分镜")
             elif step_num == 4:
+                status = "步骤4/7 正在搜索配图"
                 outputs.append("步骤4/7：正在搜索配图")
             elif step_num == 5:
+                status = "步骤5/7 正在合成配音"
                 outputs.append("步骤5/7：正在合成配音")
             elif step_num == 6:
+                status = "步骤6/7 正在渲染视频"
                 outputs.append("步骤6/7：正在渲染视频")
             elif step_num == 7:
+                status = "步骤7/7 正在发布到抖音"
                 outputs.append("步骤7/7：正在发布到抖音")
                 urgent = True
             else:
+                status = f"步骤{step_num}/7 {step_name}"
                 outputs.append(f"步骤{step_num}/7：{step_name}")
+            self.current_status = status
             return outputs, urgent
 
         link_match = LINK_RE.search(text)
@@ -310,6 +322,7 @@ class LogSummarizer:
         if "AI关键词提取完成" in text or "AI成功提取" in text:
             if not self.seen_search_done:
                 self.seen_search_done = True
+                self.current_status = "步骤4/7 正在下载配图"
                 outputs.append("步骤4进度：配图关键词已生成")
             return outputs, False
 
@@ -317,17 +330,20 @@ class LogSummarizer:
             return [], False
 
         if "词边界:" in text:
+            self.current_status = "步骤5/7 配音已生成，等待进入视频渲染"
             outputs.append("步骤5完成：配音已生成")
             return outputs, False
 
         audio_match = AUDIO_DURATION_RE.search(text)
         if audio_match:
             self.audio_duration = audio_match.group(1)
+            self.current_status = "步骤6/7 正在渲染视频"
             outputs.append(f"步骤6进度：开始渲染，音频时长 {self.audio_duration} 秒")
             return outputs, False
 
         if any(part in text for part in ("[6b]", "[6c]", "[6d]", "[6e]", "[6f]")):
             label = text.split("]", 1)[-1].strip() if "]" in text else text
+            self.current_status = f"步骤6/7 {label}"
             outputs.append(f"步骤6进度：{label}")
             return outputs, False
 
@@ -346,32 +362,39 @@ class LogSummarizer:
             return outputs, True
 
         if "上传前检查通过" in text:
+            self.current_status = "步骤7/7 上传前检查通过"
             outputs.append("发布进度：上传前检查通过")
             return outputs, True
 
         if "正在赶往上传主页" in text:
+            self.current_status = "步骤7/7 正在打开抖音上传页"
             outputs.append("发布进度：正在打开抖音上传页")
             return outputs, True
 
         if "正在努力上传视频" in text:
             if not self.seen_publish_upload:
                 self.seen_publish_upload = True
+                self.current_status = "步骤7/7 正在上传视频"
                 outputs.append("发布进度：正在上传视频")
             return outputs, True
 
         if "正在设置视频封面" in text:
+            self.current_status = "步骤7/7 正在设置封面"
             outputs.append("发布进度：正在设置封面")
             return outputs, True
 
         if "封面" in text and ("上传" in text or "关闭" in text or "完成" in text):
+            self.current_status = "步骤7/7 正在处理封面"
             outputs.append(f"发布进度：{text}")
             return outputs, True
 
         if "视频发布成功" in text or "发布成功" in text:
+            self.current_status = ""
             outputs.append("步骤7完成：抖音发布成功")
             return outputs, True
 
         if "云端任务完成" in text:
+            self.current_status = ""
             outputs.append("云端任务完成")
             return outputs, True
 
@@ -385,6 +408,7 @@ class LogSummarizer:
             return [], False
 
         if is_failure_line(text):
+            self.current_status = ""
             outputs.append(text)
             return outputs, True
 
@@ -428,10 +452,18 @@ class TimedLogBuffer:
     def __init__(self, interval_seconds=FLUSH_INTERVAL_SECONDS):
         self.interval_seconds = interval_seconds
         self.pending = []
+        self.current_status = ""
+        self.next_heartbeat_at = time.monotonic() + HEARTBEAT_INTERVAL_SECONDS
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
+
+    def set_status(self, status):
+        with self.lock:
+            if status != self.current_status:
+                self.current_status = status
+                self.next_heartbeat_at = time.monotonic() + HEARTBEAT_INTERVAL_SECONDS
 
     def add(self, line):
         with self.lock:
@@ -440,6 +472,7 @@ class TimedLogBuffer:
     def add_urgent(self, line, status="running"):
         self.flush()
         post_log([line], status)
+        self._mark_emitted()
 
     def flush(self, status="running"):
         with self.lock:
@@ -448,6 +481,21 @@ class TimedLogBuffer:
             lines = self.pending
             self.pending = []
         post_log(lines, status)
+        self._mark_emitted()
+
+    def maybe_post_heartbeat(self):
+        now = time.monotonic()
+        line = None
+        with self.lock:
+            if self.current_status and now >= self.next_heartbeat_at:
+                line = f"仍在运行：{self.current_status}，暂无新进度，已继续等待约 5 分钟"
+                self.next_heartbeat_at = now + HEARTBEAT_INTERVAL_SECONDS
+        if line:
+            post_log([line], "running")
+
+    def _mark_emitted(self):
+        with self.lock:
+            self.next_heartbeat_at = time.monotonic() + HEARTBEAT_INTERVAL_SECONDS
 
     def close(self):
         self.stop_event.set()
@@ -457,6 +505,7 @@ class TimedLogBuffer:
     def _run(self):
         while not self.stop_event.wait(self.interval_seconds):
             self.flush()
+            self.maybe_post_heartbeat()
 
 
 def stream_stdin():
@@ -476,6 +525,7 @@ def stream_stdin():
             if is_failure_line(text):
                 saw_failure = True
             outputs, urgent = summarizer.consume(text)
+            buffer.set_status(summarizer.current_status)
             for output in outputs:
                 if output == last_kept:
                     continue
