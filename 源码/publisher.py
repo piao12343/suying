@@ -195,24 +195,31 @@ def publish_to_douyin(video_path, title, tags=None, description=None,
                 cmd.append('--debug')
 
             env = os.environ.copy()
+            env['PYTHONUNBUFFERED'] = '1'
             env['PYTHONIOENCODING'] = 'utf-8'
-            result = subprocess.run(
+            process = subprocess.Popen(
                 cmd,
                 cwd=str(SAU_DIR),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
                 text=True,
                 encoding='utf-8',
                 errors='replace',
-                timeout=None,
                 env=env,
             )
-            output = ((result.stdout or '') + '\n' + (result.stderr or '')).strip()
+            output_lines = []
+            for line in process.stdout or []:
+                output_lines.append(line)
+                print(line, end='', flush=True)
+            return_code = process.wait()
+            output = ''.join(output_lines).strip()
             _sync_cookie_from_sau()
-            if result.returncode == 0:
+            if return_code == 0:
                 return {'success': True, 'message': '发布成功'}
             return {
                 'success': False,
-                'message': output[-1200:] if output else f'social-auto-upload CLI 退出码: {result.returncode}',
+                'message': output[-1200:] if output else f'social-auto-upload CLI 退出码: {return_code}',
             }
         except Exception as e:
             return {'success': False, 'message': f'social-auto-upload CLI 发布失败: {e}'}

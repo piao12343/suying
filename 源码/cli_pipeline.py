@@ -4,7 +4,7 @@ Usage: python cli_pipeline.py <douyin_url_or_narration_file>
        python cli_pipeline.py --poll   (poll Cloudflare Worker for pending links)
 """
 
-import os, sys, json, re, time, shutil, subprocess
+import os, sys, json, re, time, shutil, subprocess, threading, queue
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -767,30 +767,66 @@ payload = json.loads(payload_path.read_text(encoding='utf-8'))
 if payload.get('publish_date'):
     payload['publish_date'] = datetime.fromisoformat(payload['publish_date'])
 result = publish_to_douyin(**payload)
-print('SUYING_PUBLISH_RESULT=' + json.dumps(result, ensure_ascii=False))
+print('SUYING_PUBLISH_RESULT=' + json.dumps(result, ensure_ascii=False), flush=True)
 sys.exit(0 if result.get('success') else 2)
 '''
 
         try:
-            proc = subprocess.run(
+            publish_env = os.environ.copy()
+            publish_env['PYTHONUNBUFFERED'] = '1'
+            publish_env['PYTHONIOENCODING'] = 'utf-8'
+            proc = subprocess.Popen(
                 [sys.executable, '-c', publish_code, str(publish_payload_path), str(SRC_DIR)],
                 cwd=str(BASE),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
                 text=True,
                 encoding='utf-8',
                 errors='replace',
-                timeout=timeout_seconds,
+                env=publish_env,
             )
-        except subprocess.TimeoutExpired:
-            log(f'  发布失败: 抖音发布超过 {timeout_seconds // 60} 分钟, 已停止等待')
+            publish_lines = []
+            publish_queue = queue.Queue()
+
+            def read_publish_output():
+                if proc.stdout:
+                    for output_line in proc.stdout:
+                        publish_queue.put(output_line)
+
+            reader = threading.Thread(target=read_publish_output, daemon=True)
+            reader.start()
+            start_time = time.time()
+            while True:
+                try:
+                    line = publish_queue.get(timeout=0.5)
+                    publish_lines.append(line)
+                    if not line.startswith('SUYING_PUBLISH_RESULT=') and line.strip():
+                        log(line.rstrip())
+                    continue
+                except queue.Empty:
+                    pass
+                if proc.poll() is not None:
+                    while True:
+                        try:
+                            line = publish_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        publish_lines.append(line)
+                        if not line.startswith('SUYING_PUBLISH_RESULT=') and line.strip():
+                            log(line.rstrip())
+                    break
+                if time.time() - start_time > timeout_seconds:
+                    proc.kill()
+                    proc.wait()
+                    log(f'  发布失败: 抖音发布超过 {timeout_seconds // 60} 分钟, 已停止等待')
+                    return
+                time.sleep(0.5)
+        except Exception as exc:
+            log(f'  发布失败: 发布进程异常: {exc}')
             return
 
-        publish_output = ((proc.stdout or '') + '\n' + (proc.stderr or '')).strip()
-        for line in publish_output.splitlines():
-            if line.startswith('SUYING_PUBLISH_RESULT='):
-                continue
-            if line.strip():
-                log(line.rstrip())
+        publish_output = ''.join(publish_lines).strip()
 
         result = None
         for line in publish_output.splitlines():
