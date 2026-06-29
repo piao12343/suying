@@ -219,6 +219,23 @@ def extract_search_keywords(text, keyword_map):
     return unique[:3] if unique else None
 
 
+def prefer_chinese_people_query(query):
+    """人物画面优先搜索中国人, 避免民间故事视频里混入外国人物图片。"""
+    if not query:
+        return query
+    lower = query.lower()
+    if 'chinese' in lower or 'asian' in lower:
+        return query
+    people_words = (
+        'woman', 'man', 'mother', 'father', 'elderly', 'old ', 'wife', 'husband',
+        'daughter', 'son', 'couple', 'family', 'bride', 'groom', 'girl', 'boy',
+        'grandmother', 'grandfather', 'doctor', 'patient', 'villager', 'people',
+    )
+    if any(word in lower for word in people_words):
+        return f'chinese {query}'
+    return query
+
+
 def ai_extract_image_keywords(segments, config, max_retries=2, learning_context=''):
     """
     用AI为每个镜头提取图片搜索关键词。
@@ -235,7 +252,7 @@ def ai_extract_image_keywords(segments, config, max_retries=2, learning_context=
         "请为每组提取1-2个适合在Pexels图片网站搜索的英文关键词。\n"
         "要求:\n"
         "- 关键词必须是英文, 偏向视觉画面描述 (人物、场景、动作、氛围)\n"
-        "- 优先人物主体, 例如 woman, man, elderly woman, couple, village girl, scholar\n"
+        "- 如果画面出现人物, 必须优先中国人/亚洲人, 关键词里写 chinese, 例如 chinese mother, elderly chinese woman, chinese family\n"
         "- 画面适合民间故事频道: colorful, cinematic, rural village, folk tale mood\n"
         "- 每组关键词用逗号分隔, 2-4个单词的短语最佳\n"
         "- 严格按编号顺序输出, 格式: 编号. keyword1, keyword2\n"
@@ -463,6 +480,7 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
             source = '泛用'
 
         # 避免重复搜索
+        query = prefer_chinese_people_query(query)
         if query in used_queries:
             query = query + " aesthetic"
         used_queries.add(query)

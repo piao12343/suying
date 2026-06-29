@@ -129,6 +129,18 @@ def patch():
         print('[FAIL] step5: description input marker not found')
         ok = False
 
+    # ── 步骤 5b: 空描述保持为空, 不自动用标题填充描述区 ──
+    desc_fallback_old = '        await self.fill_title_and_description(page, self.title, self.desc or self.title, self.tags)'
+    desc_fallback_new = '        await self.fill_title_and_description(page, self.title, self.desc, self.tags)'
+    if desc_fallback_new in code:
+        print('[OK] step5b: empty description stays empty already patched')
+    elif desc_fallback_old in code:
+        code = code.replace(desc_fallback_old, desc_fallback_new, 1)
+        print('[OK] step5b: empty description will not duplicate title')
+    else:
+        print('[FAIL] step5b: description fallback marker not found')
+        ok = False
+
     # ── 步骤 6: 推荐封面确认框“确定”按钮会被 semi tooltip 浮层挡住 ──
     auto_cover_guard = (
         '    async def handle_auto_video_cover(self, page):\n'
