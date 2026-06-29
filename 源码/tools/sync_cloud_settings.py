@@ -32,7 +32,6 @@ SECRET_LABELS = {
     'SUYING_TTS_RATE': 'TTS 语速',
     'SUYING_OPENROUTER_MODEL': 'AI 模型',
     'SUYING_OPENROUTER_BASE_URL': 'AI 接口地址',
-    'SUYING_OPENROUTER_FALLBACK_MODELS': 'AI 备用模型',
     'SUYING_PUB_DESC': '发布话题',
     'SUYING_AUTO_PUBLISH': '自动发布固定开启',
     'SUYING_PUBLISH_INTERVAL_MINUTES': '定时发布间隔',
@@ -137,7 +136,7 @@ def main():
     parser.add_argument('--listener', action='store_true', help='同步 Worker 地址和密钥')
     parser.add_argument('--pushplus', action='store_true', help='同步 PushPlus Token')
     parser.add_argument('--tts', action='store_true', help='同步 TTS 语音和语速')
-    parser.add_argument('--openrouter-model', action='store_true', help='同步 AI 模型、接口地址和备用模型')
+    parser.add_argument('--openrouter-model', action='store_true', help='同步 AI 模型和接口地址')
     parser.add_argument('--pub-desc', action='store_true', help='同步发布话题')
     parser.add_argument('--auto-publish', action='store_true', help='同步自动发布开关')
     parser.add_argument('--publish-interval', action='store_true', help='同步发布间隔')
@@ -204,7 +203,6 @@ def main():
     if args.openrouter_model:
         sync_secret('SUYING_OPENROUTER_MODEL', text_value(config, 'openrouter_model'))
         sync_secret('SUYING_OPENROUTER_BASE_URL', text_value(config, 'openrouter_base_url'))
-        sync_secret('SUYING_OPENROUTER_FALLBACK_MODELS', text_value(config, 'openrouter_fallback_models'))
 
     if args.pub_desc:
         sync_secret('SUYING_PUB_DESC', text_value(config, 'pub_desc'))

@@ -69,7 +69,6 @@ def build_config():
         'SUYING_TTS_RATE': 'tts_rate',
         'SUYING_OPENROUTER_MODEL': 'openrouter_model',
         'SUYING_OPENROUTER_BASE_URL': 'openrouter_base_url',
-        'SUYING_OPENROUTER_FALLBACK_MODELS': 'openrouter_fallback_models',
         'SUYING_PUB_DESC': 'pub_desc',
         'SUYING_AUTO_PUBLISH': 'auto_publish_douyin',
         'SUYING_PUBLISH_INTERVAL_MINUTES': 'publish_interval_minutes',
@@ -285,31 +284,21 @@ class Pipeline:
                 log('  已注入学习偏好')
             prompt += '\n\n' + raw
 
-            try:
-                log(f'  模型: {self.config["openrouter_model"]}')
-                d = call_openrouter_chat(
-                    self.config,
-                    prompt,
-                    max_tokens=self.config.get('openrouter_max_tokens', 4000),
-                    retries=2,
-                    timeout=180,
-                    log_func=log,
-                )
-                used_model = d.get('_used_model')
-                if used_model and used_model != self.config.get('openrouter_model'):
-                    log(f'  实际使用模型: {used_model}')
-
-                txt = d['choices'][0]['message']['content'].strip()
-                usage = d.get('usage', {})
-                log(f'  tokens: {usage.get("total_tokens", 0)}, cost: ${usage.get("cost", 0)}')
-                t2 = re.search(r'【标题】\s*\n?(.+)', txt)
-                b2 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt)
-                title = t2.group(1).strip() if t2 else raw[:6]
-                narration = b2.group(1).strip() if b2 else txt
-            except Exception as e:
-                log(f'  AI改写失败, 使用原文继续: {e}')
-                title = raw[:6].strip() or '民间故事'
-                narration = raw
+            log(f'  模型: {self.config["openrouter_model"]}')
+            d = call_openrouter_chat(
+                self.config,
+                prompt,
+                max_tokens=self.config.get('openrouter_max_tokens', 4000),
+                timeout=180,
+                log_func=log,
+            )
+            txt = d['choices'][0]['message']['content'].strip()
+            usage = d.get('usage', {})
+            log(f'  tokens: {usage.get("total_tokens", 0)}, cost: ${usage.get("cost", 0)}')
+            t2 = re.search(r'【标题】\s*\n?(.+)', txt)
+            b2 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt)
+            title = t2.group(1).strip() if t2 else raw[:6]
+            narration = b2.group(1).strip() if b2 else txt
 
         self.title = title
         self.narration = narration
@@ -326,19 +315,15 @@ class Pipeline:
 
     # -------- Step 3: Storyboard split --------
     def step3_split(self):
-        from video_pipeline import ai_split_narration, split_narration
+        from video_pipeline import ai_split_narration
 
         log('=' * 50)
         log('[步骤3/7] 分镜切分...')
 
         num_shots = self.config.get('num_shots', 5)
-        try:
-            log(f'  尝试AI按故事情节分镜, 最多 {num_shots} 段...')
-            segs = ai_split_narration(self.narration, self.config, num_shots, log_func=log)
-            log('  AI分镜成功')
-        except Exception as e:
-            log(f'  AI分镜失败, 使用机械分镜: {e}')
-            segs = split_narration(self.narration, num_shots)
+        log(f'  尝试AI按故事情节分镜, 最多 {num_shots} 段...')
+        segs = ai_split_narration(self.narration, self.config, num_shots, log_func=log)
+        log('  AI分镜成功')
         self.segments = segs
         log(f'  共 {len(segs)} 个分镜, 预估 {sum(s["duration"] for s in segs):.0f}秒')
         for s in segs:

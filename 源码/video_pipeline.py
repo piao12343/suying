@@ -121,7 +121,7 @@ def split_narration(text, num_shots=10):
     return result
 
 
-def ai_split_narration(text, config, num_shots=5, max_retries=2, log_func=print):
+def ai_split_narration(text, config, num_shots=5, log_func=print):
     """
     用AI按故事情节决定分镜边界。
     AI只返回句子编号范围, 程序用原文拼接, 避免AI改写/删文案。
@@ -153,7 +153,6 @@ def ai_split_narration(text, config, num_shots=5, max_retries=2, log_func=print)
         config,
         prompt,
         max_tokens=800,
-        retries=max_retries,
         timeout=120,
         log_func=log_func,
     )
@@ -201,24 +200,6 @@ def ai_split_narration(text, config, num_shots=5, max_retries=2, log_func=print)
 
 # ============ 步骤2: 提取图片搜索关键词 ============
 
-def extract_search_keywords(text, keyword_map):
-    """从文本中提取图片搜索关键词(静态字典匹配, 作为AI的兜底方案)"""
-    found_keywords = []
-    # 先查精确匹配
-    for zh_word, en_keyword in keyword_map.items():
-        if zh_word in text:
-            found_keywords.append(en_keyword)
-
-    # 去重, 取前3个最相关的
-    seen = set()
-    unique = []
-    for kw in found_keywords:
-        if kw not in seen:
-            seen.add(kw)
-            unique.append(kw)
-    return unique[:3] if unique else None
-
-
 def prefer_chinese_people_query(query):
     """人物画面优先搜索中国人, 避免民间故事视频里混入外国人物图片。"""
     if not query:
@@ -236,11 +217,10 @@ def prefer_chinese_people_query(query):
     return query
 
 
-def ai_extract_image_keywords(segments, config, max_retries=2, learning_context=''):
+def ai_extract_image_keywords(segments, config, learning_context=''):
     """
     用AI为每个镜头提取图片搜索关键词。
     一次API调用处理所有镜头, 返回 {shot_id: [keyword1, keyword2]} 字典。
-    AI失败时返回空字典, 调用方应回退到静态 keyword_map。
     learning_context: 用户过往关键词修正记录, 注入到提示词中。
     """
     seg_list = '\n'.join(f"{seg['id']}. {seg['text']}" for seg in segments)
@@ -260,27 +240,17 @@ def ai_extract_image_keywords(segments, config, max_retries=2, learning_context=
         f"{seg_list}"
     )
 
-    try:
-        data = call_openrouter_chat(
-            config,
-            prompt,
-            max_tokens=600,
-            retries=max_retries,
-            timeout=120,
-            log_func=print,
-        )
-        used_model = data.get('_used_model')
-        if used_model and used_model != config.get('openrouter_model'):
-            print(f"   AI关键词实际使用模型: {used_model}")
-    except Exception as e:
-        print(f"   AI提取关键词失败: {e}")
-        return {}
+    data = call_openrouter_chat(
+        config,
+        prompt,
+        max_tokens=600,
+        timeout=120,
+        log_func=print,
+    )
 
-    # 解析AI返回的关键词。免费模型偶尔会返回 content=None, 此时回退静态关键词。
     content = data.get('choices', [{}])[0].get('message', {}).get('content')
     if not isinstance(content, str) or not content.strip():
-        print("   AI提取关键词失败: 模型返回内容为空")
-        return {}
+        raise RuntimeError("AI提取关键词失败: 模型返回内容为空")
     text_resp = content.strip()
     result = {}
     for line in text_resp.split('\n'):
@@ -327,35 +297,6 @@ def search_pexels(query, api_key, per_page=3, orientation='portrait'):
         return urls
     except Exception as e:
         print(f"   Pexels异常: {e}")
-        return []
-
-
-def search_baidu_images(query, per_page=3):
-    """从百度图片搜索图片(备用方案)"""
-    try:
-        url = "https://image.baidu.com/search/acjson"
-        params = {
-            "tn": "resultjson_com",
-            "word": query,
-            "pn": 0,
-            "rn": per_page * 2,  # 多请求一些, 过滤无效链接
-            "ie": "utf-8",
-        }
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
-        data = resp.json()
-        urls = []
-        for item in data.get('data', []):
-            img_url = item.get('thumbURL') or item.get('middleURL', '')
-            if img_url and img_url.startswith('http'):
-                urls.append(img_url)
-                if len(urls) >= per_page:
-                    break
-        return urls
-    except Exception as e:
-        print(f"   百度图片异常: {e}")
         return []
 
 
@@ -421,36 +362,33 @@ def fill_missing_story_images(segments, results):
 def search_and_download_images(segments, config, output_dir, learning_context=''):
     """
     为每个分镜段落搜索并下载实拍图片。
-    关键词优先级: AI动态提取 > 静态keyword_map > fallback_terms
+    关键词优先级: AI动态提取 > fallback_terms
     返回: [{"id": 1, "image_path": "...", "search_query": "..."}, ...]
     learning_context: 用户过往关键词修正记录, 传递给AI提取。
     """
     api_key = config['pexels_api_key']
-    keyword_map = config.get('image_search_keywords_map', {})
     fallback_terms = config.get('fallback_search_terms', [])
+    if not fallback_terms:
+        raise RuntimeError("fallback_search_terms 未配置, 无法在关键词缺失时兜底")
     img_dir = ensure_dir(output_dir / 'images')
     max_story_images = int(config.get('story_image_count', 5) or 5)
     search_segments = select_story_image_segments(segments, max_story_images)
     if len(search_segments) < len(segments):
         print(f"   民间故事配图模式: 只搜索 {len(search_segments)} 张关键图, 其他分镜复用图片")
 
-    # 优先用AI提取每个镜头的搜索关键词
-    ai_keywords = {}
     or_key = config.get('openrouter_api_key', '')
     or_model = config.get('openrouter_model', '')
-    if or_key and or_model:
-        print("   正在用AI提取图片搜索关键词...")
-        ai_keywords = ai_extract_image_keywords(
-            search_segments,
-            config,
-            learning_context=learning_context,
-        )
-        if ai_keywords:
-            print("   AI关键词提取完成, 使用AI关键词搜索")
-        else:
-            print("   AI提取失败, 回退到静态关键词表")
-    else:
-        print("   未配置OpenRouter, 使用静态关键词表")
+    if not or_key or not or_model:
+        raise RuntimeError("AI 配图关键词未配置: openrouter_api_key/openrouter_model")
+    print("   正在用AI提取图片搜索关键词...")
+    ai_keywords = ai_extract_image_keywords(
+        search_segments,
+        config,
+        learning_context=learning_context,
+    )
+    if not ai_keywords:
+        raise RuntimeError("AI配图关键词提取结果为空")
+    print("   AI关键词提取完成, 使用AI关键词搜索")
 
     results = []
     used_queries = set()
@@ -458,7 +396,7 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
     for i, seg in enumerate(search_segments):
         print(f"   分镜 {seg['id']}: 搜索图片...")
 
-        # 关键词优先级: AI提取 > 静态keyword_map > fallback
+        # 关键词优先级: AI提取 > fallback
         query = None
         source = ''
 
@@ -468,13 +406,7 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
             query = kws[0] if kws else None
             source = 'AI'
 
-        # 2) 静态keyword_map兜底
-        if not query:
-            keywords = extract_search_keywords(seg['text'], keyword_map)
-            query = keywords[0] if keywords else None
-            source = '静态'
-
-        # 3) fallback泛用词兜底
+        # 2) fallback泛用词兜底
         if not query:
             query = fallback_terms[i % len(fallback_terms)]
             source = '泛用'
@@ -487,15 +419,7 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
 
         print(f"      搜索词[{source}]: {query}")
 
-        # Pexels搜索
         urls = search_pexels(query, api_key, per_page=5)
-
-        # Pexels失败则用百度备用
-        if not urls:
-            print(f"      Pexels无结果, 尝试百度图片...")
-            zh_keywords = [k for k, v in keyword_map.items() if v == query]
-            zh_query = zh_keywords[0] if zh_keywords else query
-            urls = search_baidu_images(zh_query, per_page=5)
 
         # 下载第一张成功的图片
         downloaded = False
