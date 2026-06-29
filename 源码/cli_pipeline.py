@@ -237,13 +237,14 @@ class Pipeline:
                 raise RuntimeError('无法解析视频ID')
             info = get_video_info(vid)
             log(f'  作者: {info["author"]}')
-            if not info['video_url']:
+            video_urls = info.get('video_urls') or [info.get('video_url')]
+            if not any(video_urls):
                 raise RuntimeError('无法获取视频地址')
             wav = CACHE / f'_audio_{vid}.wav'
             try:
                 t0 = time.perf_counter()
                 log('  开始下载视频并提取音频...')
-                download_and_extract_audio(info['video_url'], wav)
+                download_and_extract_audio(video_urls, wav)
                 log(f'  音频提取完成, 用时 {time.perf_counter() - t0:.1f} 秒')
                 log('  开始语音识别...')
                 t0 = time.perf_counter()

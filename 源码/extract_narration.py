@@ -32,6 +32,7 @@ WHISPER_MODEL = "small"  # small model works well for Chinese, auto-downloads on
 _CACHE_BASE = Path(os.environ.get('SUYING_CACHE_DIR', str(_BASE / '缓存')))
 WORK_DIR = _CACHE_BASE
 WORK_DIR.mkdir(parents=True, exist_ok=True)
+COOKIE_FILE = _BASE / '配置' / 'cookies' / 'douyin_creator.json'
 
 # Model cache (auto-downloads on first run)
 if not os.environ.get("HF_HOME"):
@@ -47,6 +48,55 @@ HEADERS = {
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
     'Connection': 'keep-alive',
 }
+
+
+def _load_cookie_header():
+    """Build Cookie header from saved Douyin login state when available."""
+    try:
+        if not COOKIE_FILE.exists() or COOKIE_FILE.stat().st_size < 50:
+            return ''
+        data = json.loads(COOKIE_FILE.read_text(encoding='utf-8'))
+        cookies = data.get('cookies', []) if isinstance(data, dict) else data
+        pairs = []
+        for item in cookies or []:
+            if not isinstance(item, dict):
+                continue
+            name = item.get('name')
+            value = item.get('value')
+            if name and value is not None:
+                pairs.append(f'{name}={value}')
+        return '; '.join(pairs)
+    except Exception:
+        return ''
+
+
+def request_headers(with_cookie=True):
+    headers = dict(HEADERS)
+    if with_cookie:
+        cookie = _load_cookie_header()
+        if cookie:
+            headers['Cookie'] = cookie
+    return headers
+
+
+def expand_video_urls(urls):
+    """Add alternate Douyin ratio/line URLs for the same video_id."""
+    expanded = []
+
+    def add(url):
+        if url and url not in expanded:
+            expanded.append(url)
+
+    for raw_url in urls or []:
+        add(raw_url)
+        video_id_match = re.search(r'video_id=([^&]+)', str(raw_url))
+        if not video_id_match:
+            continue
+        video_id = video_id_match.group(1)
+        for ratio in ('540p', '360p', '360p_2', '720p', 'origin'):
+            for line in range(4):
+                add(f'https://aweme.snssdk.com/aweme/v1/play/?video_id={video_id}&ratio={ratio}&line={line}')
+    return expanded
 
 
 def extract_share_url(text):
@@ -70,7 +120,7 @@ def extract_share_url(text):
 def resolve_video_id(share_url):
     """Resolve short link to get video ID"""
     print(f"[1/4] 解析抖音链接...")
-    resp = requests.get(share_url, headers=HEADERS, allow_redirects=True, timeout=30, verify=False)
+    resp = requests.get(share_url, headers=request_headers(), allow_redirects=True, timeout=30, verify=False)
     final_url = resp.url
     # Extract video ID from URL
     vid_match = re.search(r'/video/(\d+)', final_url)
@@ -87,7 +137,7 @@ def get_video_info(video_id):
     """Get video info (title, desc, watermark-free URL)"""
     print(f"[2/4] 获取视频信息 (ID: {video_id})...")
     url = f'https://www.iesdouyin.com/share/video/{video_id}'
-    resp = requests.get(url, headers=HEADERS, timeout=30, verify=False)
+    resp = requests.get(url, headers=request_headers(), timeout=30, verify=False)
     text = resp.text
 
     idx = text.find('_ROUTER_DATA')
@@ -119,16 +169,33 @@ def get_video_info(video_id):
     desc = item.get('desc', '')
     nickname = item.get('author', {}).get('nickname', '未知')
 
-    # Get watermark-free video URL
-    play_addr = item.get('video', {}).get('play_addr', {})
-    url_list = play_addr.get('url_list', [])
-    video_url = url_list[0].replace('playwm', 'play') if url_list else None
+    # Get candidate video URLs. Douyin often returns multiple CDN URLs; cloud
+    # runners may be blocked by one CDN while another still works.
+    video_urls = []
+
+    def add_urls(urls):
+        for raw_url in urls or []:
+            if not raw_url:
+                continue
+            url = str(raw_url).replace('playwm', 'play')
+            if url not in video_urls:
+                video_urls.append(url)
+
+    video = item.get('video', {})
+    add_urls(video.get('play_addr', {}).get('url_list', []))
+    add_urls(video.get('download_addr', {}).get('url_list', []))
+    for br in video.get('bit_rate', []) or []:
+        add_urls(br.get('play_addr', {}).get('url_list', []))
+
+    video_urls = expand_video_urls(video_urls)
+    video_url = video_urls[0] if video_urls else None
 
     return {
         'video_id': video_id,
         'desc': desc,
         'author': nickname,
         'video_url': video_url,
+        'video_urls': video_urls,
     }
 
 
@@ -136,6 +203,10 @@ def download_and_extract_audio(video_url, output_path):
     """Download video and extract audio"""
     started = time.perf_counter()
     print(f"[3/4] 下载视频并提取音频...")
+    video_urls = video_url if isinstance(video_url, (list, tuple)) else [video_url]
+    video_urls = [u for u in video_urls if u]
+    if not video_urls:
+        raise Exception("音频提取失败: 没有可用的视频地址")
 
     def extract_from_input(input_path):
         cmd = [
@@ -150,69 +221,77 @@ def download_and_extract_audio(video_url, output_path):
         ]
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, **NW)
 
-    # Prefer ffmpeg direct read. If Douyin blocks it with 403, fall back to
-    # requests download so we can control headers and retries more precisely.
-    cmd = [
-        FFMPEG_PATH,
-        '-y',
-        '-headers', ''.join(f'{k}: {v}\r\n' for k, v in HEADERS.items()),
-        '-i', video_url,
-        '-vn',           # no video
-        '-acodec', 'pcm_s16le',  # WAV format, better for whisper
-        '-ar', '16000',  # 16kHz, Whisper standard
-        '-ac', '1',      # mono
-        str(output_path),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, **NW)
-    if result.returncode == 0:
-        elapsed = time.perf_counter() - started
-        print(f"   音频已保存: {output_path} (用时 {elapsed:.1f} 秒)")
-        return
-
-    print(f"ffmpeg 直连失败, 尝试 requests 备用下载: {result.stderr[-300:]}")
-
-    tmp_video = Path(tempfile.mkstemp(prefix='douyin_video_', suffix='.mp4', dir=str(WORK_DIR))[1])
+    tmp_fd, tmp_name = tempfile.mkstemp(prefix='douyin_video_', suffix='.mp4', dir=str(WORK_DIR))
+    os.close(tmp_fd)
+    tmp_video = Path(tmp_name)
     try:
         last_error = ''
-        for attempt in range(1, 4):
-            try:
-                headers = dict(HEADERS)
-                headers['Range'] = 'bytes=0-'
-                resp = requests.get(
-                    video_url,
-                    headers=headers,
-                    stream=True,
-                    timeout=45,
-                    allow_redirects=True,
-                    verify=False,
-                )
-                if resp.status_code not in (200, 206):
-                    last_error = f'HTTP {resp.status_code}'
-                    print(f"   备用下载尝试{attempt}/3失败: {last_error}")
-                    continue
+        for url_idx, current_url in enumerate(video_urls, 1):
+            print(f"   尝试视频地址 {url_idx}/{len(video_urls)}...")
 
-                total = 0
-                with tmp_video.open('wb') as f:
-                    for chunk in resp.iter_content(chunk_size=1024 * 256):
-                        if chunk:
-                            f.write(chunk)
-                            total += len(chunk)
-                if total < 10000:
-                    last_error = f'文件过小: {total} bytes'
-                    print(f"   备用下载尝试{attempt}/3失败: {last_error}")
-                    continue
+            # Prefer ffmpeg direct read. If Douyin blocks it with 403, fall back
+            # to requests download so we can control headers and retries.
+            cmd = [
+                FFMPEG_PATH,
+                '-y',
+                '-headers', ''.join(f'{k}: {v}\r\n' for k, v in request_headers().items()),
+                '-i', current_url,
+                '-vn',           # no video
+                '-acodec', 'pcm_s16le',  # WAV format, better for whisper
+                '-ar', '16000',  # 16kHz, Whisper standard
+                '-ac', '1',      # mono
+                str(output_path),
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, **NW)
+            if result.returncode == 0:
+                elapsed = time.perf_counter() - started
+                print(f"   音频已保存: {output_path} (用时 {elapsed:.1f} 秒)")
+                return
 
-                print(f"   备用下载成功: {total / 1024 / 1024:.1f} MB")
-                local_result = extract_from_input(tmp_video)
-                if local_result.returncode == 0:
-                    elapsed = time.perf_counter() - started
-                    print(f"   音频已保存: {output_path} (用时 {elapsed:.1f} 秒)")
-                    return
-                last_error = local_result.stderr[-300:]
-                print(f"   本地音频提取失败: {last_error}")
-            except Exception as e:
-                last_error = str(e)
-                print(f"   备用下载尝试{attempt}/3异常: {last_error}")
+            last_error = result.stderr[-300:]
+            print(f"   地址{url_idx} ffmpeg直连失败: {last_error}")
+
+            for attempt in range(1, 4):
+                if tmp_video.exists():
+                    tmp_video.unlink()
+                try:
+                    headers = request_headers()
+                    headers['Range'] = 'bytes=0-'
+                    resp = requests.get(
+                        current_url,
+                        headers=headers,
+                        stream=True,
+                        timeout=45,
+                        allow_redirects=True,
+                        verify=False,
+                    )
+                    if resp.status_code not in (200, 206):
+                        last_error = f'HTTP {resp.status_code}'
+                        print(f"   地址{url_idx}备用下载尝试{attempt}/3失败: {last_error}")
+                        continue
+
+                    total = 0
+                    with tmp_video.open('wb') as f:
+                        for chunk in resp.iter_content(chunk_size=1024 * 256):
+                            if chunk:
+                                f.write(chunk)
+                                total += len(chunk)
+                    if total < 10000:
+                        last_error = f'文件过小: {total} bytes'
+                        print(f"   地址{url_idx}备用下载尝试{attempt}/3失败: {last_error}")
+                        continue
+
+                    print(f"   地址{url_idx}备用下载成功: {total / 1024 / 1024:.1f} MB")
+                    local_result = extract_from_input(tmp_video)
+                    if local_result.returncode == 0:
+                        elapsed = time.perf_counter() - started
+                        print(f"   音频已保存: {output_path} (用时 {elapsed:.1f} 秒)")
+                        return
+                    last_error = local_result.stderr[-300:]
+                    print(f"   地址{url_idx}本地音频提取失败: {last_error}")
+                except Exception as e:
+                    last_error = str(e)
+                    print(f"   地址{url_idx}备用下载尝试{attempt}/3异常: {last_error}")
 
         raise Exception(f"音频提取失败: {last_error}")
     finally:
