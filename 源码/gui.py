@@ -1554,21 +1554,27 @@ class App:
         cl = self.proc_dir / 'concat_list.txt'
         cl.write_text(''.join(f"file '{c}'\n" for c in cfs), encoding='utf-8')
         cat = self.proc_dir / 'concat_video.mp4'
-        subprocess.run([ffmpeg, '-y', '-f', 'concat', '-safe', '0', '-i', str(cl),
-            '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p', str(cat)],
-            capture_output=True, timeout=300, **NW)
+        concat_result = subprocess.run([ffmpeg, '-y', '-f', 'concat', '-safe', '0', '-i', str(cl),
+            '-c', 'copy', str(cat)],
+            capture_output=True, text=True, timeout=300, **NW)
+        if concat_result.returncode != 0 or not cat.exists() or cat.stat().st_size <= 0:
+            raise RuntimeError('视频片段快速拼接失败: 中间片段参数不一致或输出无效')
 
         # 6c: Overlay TTS audio
         self.log('  [6c] 叠加TTS音频...')
         wa = self.proc_dir / 'video_with_audio.mp4'
-        subprocess.run([ffmpeg, '-y', '-i', str(cat), '-i', str(self.audio_path),
+        audio_result = subprocess.run([ffmpeg, '-y', '-i', str(cat), '-i', str(self.audio_path),
             '-t', f'{output_duration:.3f}', '-filter:a', f'adelay={audio_delay_ms}:all=1',
-            '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p',
+            '-c:v', 'copy',
             '-c:a', 'aac', '-b:a', '128k',
             '-map', '0:v:0', '-map', '1:a:0', str(wa)],
             capture_output=True, text=True, timeout=300, **NW)
+        if audio_result.returncode != 0 or not wa.exists() or wa.stat().st_size <= 0:
+            raise RuntimeError('视频叠加音频失败: 输出无效')
 
         tdur = probe_media_duration(ffmpeg, wa, output_duration)
+        if abs(tdur - output_duration) > 1.0:
+            raise RuntimeError(f'视频叠加音频后时长异常: {tdur:.1f}s, 预期 {output_duration:.1f}s')
 
         # 6d: Render title cover
         self.log('  [6d] 渲染标题封面...')

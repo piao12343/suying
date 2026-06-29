@@ -30,7 +30,7 @@ env:
 jobs:
   poll-and-process:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 80
 
     steps:
       # ======== Phase 1: lightweight poll ========
