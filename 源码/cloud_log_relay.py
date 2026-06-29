@@ -44,7 +44,7 @@ IMPORTANT_PATTERNS = (
     "音频已保存",
     "音频提取完成",
     "语音识别完成",
-    "TTS",
+    "TTS语音合成",
     "词边界",
     "视频渲染",
     "Ken Burns",
@@ -100,6 +100,10 @@ NOISE_PATTERNS = (
     "##[endgroup]",
     "with:",
     "env:",
+    "SUYING_",
+    "GITHUB_",
+    "FFMPEG_PATH:",
+    "SAU_DIR:",
     "shell:",
     "pythonLocation:",
     "PKG_CONFIG_PATH:",
@@ -138,7 +142,10 @@ NOISE_PATTERNS = (
 FLUSH_INTERVAL_SECONDS = 5.0
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 TIME_PREFIX_RE = re.compile(r"^\[\d{2}:\d{2}:\d{2}\]")
-ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+TEXT_ANSI_RE = re.compile(r"\^\[\[[0-9;?]*[ -/]*[@-~]")
+GITHUB_TS_PREFIX_RE = re.compile(r"^[^	]*	[^	]*	\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*")
+LOGURU_MESSAGE_RE = re.compile(r"(?:INFO|SUCCESS|WARNING|ERROR):\s*(.+)$")
 
 
 def debug_enabled():
@@ -154,7 +161,15 @@ def add_beijing_time(line):
 
 
 def clean_line(line):
-    return ANSI_RE.sub("", str(line)).strip()
+    text = TEXT_ANSI_RE.sub("", ANSI_RE.sub("", str(line))).strip()
+    text = GITHUB_TS_PREFIX_RE.sub("", text).strip()
+    if "\t" in text:
+        text = text.split("\t")[-1].strip()
+    text = TEXT_ANSI_RE.sub("", ANSI_RE.sub("", text)).strip()
+    m = LOGURU_MESSAGE_RE.search(text)
+    if m:
+        text = m.group(1).strip()
+    return text
 
 
 def is_failure_line(text):
@@ -172,12 +187,20 @@ def is_urgent_line(text):
 def should_keep_line(text):
     if not text:
         return False
-    if is_important_line(text):
-        return True
     if any(pattern in text for pattern in NOISE_PATTERNS):
         return False
-    if text.startswith(("Run ", "[command]/", "hint:", "remote:", "From https://")):
+    if text.startswith(("Run ", "[command]/", "hint:", "remote:", "From https://", "python ")):
         return False
+    if "douyin_logger." in text or "_msg(" in text:
+        return False
+    if text.startswith("^[["):
+        return False
+    if "cloud_log_relay.py --line" in text:
+        return False
+    if "源码/cloud_log_relay.py" in text:
+        return False
+    if is_important_line(text):
+        return True
     return False
 
 
@@ -252,6 +275,7 @@ class TimedLogBuffer:
 def stream_stdin():
     saw_failure = False
     buffer = TimedLogBuffer()
+    last_kept = ""
     post_log(["GitHub Actions 已进入视频处理步骤。"], "running")
 
     try:
@@ -261,6 +285,9 @@ def stream_stdin():
             text = clean_line(raw)
             if not should_keep_line(text):
                 continue
+            if text == last_kept:
+                continue
+            last_kept = text
             if is_failure_line(text):
                 saw_failure = True
                 buffer.add_urgent(text, "failed")
