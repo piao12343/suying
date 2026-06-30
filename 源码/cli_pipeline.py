@@ -722,8 +722,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         log(f'  标题: {title[:30]}')
         log(f'  话题: {desc if desc else "(无)"}')
         if publish_strategy == 'scheduled' and parsed_publish_date:
-            local_dt = parsed_publish_date.astimezone()
-            log(f'  方式: 定时发布 {local_dt.strftime("%Y-%m-%d %H:%M:%S")}')
+            log(f'  方式: 定时发布 {parsed_publish_date.strftime("%Y-%m-%d %H:%M:%S")}')
         else:
             log('  方式: 立即发布')
 
