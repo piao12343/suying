@@ -19,7 +19,6 @@ FAILURE_PATTERNS = (
     "音频提取失败",
     "Traceback",
     "Exception:",
-    "Error opening input",
 )
 IMPORTANT_PATTERNS = (
     "GitHub Actions 已取到链接",
@@ -185,6 +184,18 @@ def clean_line(line):
 
 def is_failure_line(text):
     return any(pattern in text for pattern in FAILURE_PATTERNS)
+
+
+def is_recoverable_line(text):
+    return (
+        "备用下载尝试" in text
+        or "ffmpeg直连失败" in text
+        or "Error opening input file" in text
+        or "Error opening input files" in text
+        or "Error opening input:" in text
+        or "Server returned 403 Forbidden" in text
+        or "HTTP error 403 Forbidden" in text
+    )
 
 
 def is_important_line(text):
@@ -398,13 +409,7 @@ class LogSummarizer:
             outputs.append("云端任务完成")
             return outputs, True
 
-        if (
-            "备用下载尝试" in text
-            or "ffmpeg直连失败" in text
-            or "Error opening input file" in text
-            or "Error opening input files" in text
-            or "Error opening input:" in text
-        ):
+        if is_recoverable_line(text):
             return [], False
 
         if is_failure_line(text):
@@ -522,7 +527,7 @@ def stream_stdin():
             text = clean_line(raw)
             if not should_keep_line(text):
                 continue
-            if is_failure_line(text):
+            if is_failure_line(text) and not is_recoverable_line(text):
                 saw_failure = True
             outputs, urgent = summarizer.consume(text)
             buffer.set_status(summarizer.current_status)
