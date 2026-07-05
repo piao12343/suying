@@ -1347,6 +1347,36 @@ class App:
             b2 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt)
             title = t2.group(1).strip() if t2 else raw[:6]
             narration = b2.group(1).strip() if b2 else txt
+            if len(narration) > 1400:
+                self.log(f'  改写文案偏长({len(narration)}字), 二次压缩并规范化...')
+                compress_prompt = (
+                    '请对下面已经改写过的口播文案做二次压缩和规范化。\n'
+                    '要求：\n'
+                    '1. 标题保持不变，不要换标题。\n'
+                    '2. 正文压缩到1100-1300个中文字符，最多不能超过1400个中文字符。\n'
+                    '3. 保留主线冲突、关键转折和结尾余味，不要写成提纲。\n'
+                    '4. 删除重复解释、重复对话、重复哭诉和不影响主线的旁枝。\n'
+                    '5. 自动替换可替换的人名、地名、村名、店名、公司名等，避免和原故事完全同名。\n'
+                    '6. 仍然使用现代情感故事口播风格，短句、口语化、适合TTS。\n'
+                    '7. 必须严格只输出下面两段，不要添加任何解释。\n\n'
+                    '【标题】\n'
+                    f'{title}\n\n'
+                    '【优化口播文案】\n'
+                    f'{narration}'
+                )
+                d2 = call_openrouter_chat(
+                    config,
+                    compress_prompt,
+                    max_tokens=2500,
+                    timeout=180,
+                    log_func=self.log,
+                )
+                txt2 = d2['choices'][0]['message']['content'].strip()
+                usage2 = d2.get('usage', {})
+                self.log(f'  二次压缩 tokens: {usage2.get("total_tokens", 0)}, cost: ${usage2.get("cost", 0)}')
+                b3 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt2)
+                narration = b3.group(1).strip() if b3 else txt2
+                self.log(f'  二次压缩后文案: {len(narration)} 字')
 
         self.title = title
         self.narration = narration
