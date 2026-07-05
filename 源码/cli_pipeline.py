@@ -299,18 +299,29 @@ class Pipeline:
             b2 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt)
             title = t2.group(1).strip() if t2 else raw[:6]
             narration = b2.group(1).strip() if b2 else txt
-            if len(narration) > 1400:
-                log(f'  改写文案偏长({len(narration)}字), 二次压缩并规范化...')
+            for compress_idx in range(1, 3):
+                if len(narration) <= 1400:
+                    break
+                log(f'  改写文案偏长({len(narration)}字), 第{compress_idx}次压缩编辑...')
                 compress_prompt = (
-                    '请对下面已经改写过的口播文案做二次压缩和规范化。\n'
-                    '要求：\n'
-                    '1. 标题保持不变，不要换标题。\n'
-                    '2. 正文压缩到1100-1300个中文字符，最多不能超过1400个中文字符。\n'
-                    '3. 保留主线冲突、关键转折和结尾余味，不要写成提纲。\n'
-                    '4. 删除重复解释、重复对话、重复哭诉和不影响主线的旁枝。\n'
-                    '5. 自动替换可替换的人名、地名、村名、店名、公司名等，避免和原故事完全同名。\n'
-                    '6. 仍然使用现代情感故事口播风格，短句、口语化、适合TTS。\n'
-                    '7. 必须严格只输出下面两段，不要添加任何解释。\n\n'
+                    '你现在不是重新创作，而是做“口播文案压缩编辑”。\n\n'
+                    '目标：\n'
+                    '把下面文案压缩到1100-1300个中文字符，绝对不能超过1400个中文字符。\n\n'
+                    '压缩方法，必须按这个顺序执行：\n'
+                    '1. 保留主线：人物关系、核心矛盾、关键转折、结尾余味。\n'
+                    '2. 删除重复情绪：反复委屈、反复哭诉、反复后悔、反复解释同一个观点的句子全部删掉。\n'
+                    '3. 删除旁枝人物和旁枝事件：不影响主线反转的人物、地点、对话、细节全部删掉。\n'
+                    '4. 缩短对话：长对话改成一句转述，只保留最关键的一两句话。\n'
+                    '5. 合并场景：相近场景合并，不要每个动作都写。\n'
+                    '6. 压缩铺垫：背景只保留能解释矛盾的内容。\n'
+                    '7. 结尾只保留一句有余味的话，不要长篇议论。\n\n'
+                    '特别要求：\n'
+                    '- 不要写成提纲，不要写成摘要，仍然要像一个完整的现代情感故事口播。\n'
+                    '- 自动替换可替换的人名、地名、村名、店名、公司名，避免和原文完全同名。\n'
+                    '- 如果压缩后仍可能超过1400字，继续删减重复情绪、旁枝细节和长对话。\n'
+                    '- 标题保持不变，不要换标题。\n'
+                    '- 不要解释你删了什么。\n'
+                    '- 严格只输出下面两段，不要添加任何多余文字。\n\n'
                     '【标题】\n'
                     f'{title}\n\n'
                     '【优化口播文案】\n'
@@ -325,10 +336,10 @@ class Pipeline:
                 )
                 txt2 = d2['choices'][0]['message']['content'].strip()
                 usage2 = d2.get('usage', {})
-                log(f'  二次压缩 tokens: {usage2.get("total_tokens", 0)}, cost: ${usage2.get("cost", 0)}')
+                log(f'  第{compress_idx}次压缩 tokens: {usage2.get("total_tokens", 0)}, cost: ${usage2.get("cost", 0)}')
                 b3 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt2)
                 narration = b3.group(1).strip() if b3 else txt2
-                log(f'  二次压缩后文案: {len(narration)} 字')
+                log(f'  第{compress_idx}次压缩后文案: {len(narration)} 字')
 
         self.title = title
         self.narration = narration
