@@ -46,12 +46,14 @@ def patch():
     upload_portrait_new = (
         '            async with page.expect_file_chooser(timeout=10000) as fc_info:\n'
         '                await cover_locator.get_by_text("上传封面", exact=True).last.click(force=True)\n'
-        '            await fc_info.value.set_files(self.thumbnail_portrait_path)'
+        '            file_chooser = await fc_info.value\n'
+        '            await file_chooser.set_files(self.thumbnail_portrait_path)'
     )
     upload_landscape_new = (
         '            async with page.expect_file_chooser(timeout=10000) as fc_info:\n'
         '                await cover_locator.get_by_text("上传封面", exact=True).last.click(force=True)\n'
-        '            await fc_info.value.set_files(self.thumbnail_landscape_path)'
+        '            file_chooser = await fc_info.value\n'
+        '            await file_chooser.set_files(self.thumbnail_landscape_path)'
     )
     if 'page.expect_file_chooser(timeout=10000)' in code:
         print('[OK] step2b: cover upload uses visible button file chooser already patched')
