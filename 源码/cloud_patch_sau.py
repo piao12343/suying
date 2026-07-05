@@ -5,6 +5,7 @@
 v5: 自定义封面优先。点击封面“完成”后等待抖音页面自然接收封面状态；
     如果自定义封面仍未生效, 发布时再自动改用第一个推荐封面兜底。
     上传封面时优先走可见按钮触发 file chooser, 不再猜隐藏 input 下标。
+    按抖音实际操作流程分别上传竖封面和横封面, 最后再点完成。
 """
 import sys
 
@@ -43,6 +44,8 @@ def patch():
     cover_input_old_2 = 'cover_upload = cover_locator.locator("input.semi-upload-hidden-input").nth(2)'
     upload_portrait_old = '            await cover_upload.set_input_files(self.thumbnail_portrait_path)'
     upload_landscape_old = '            await cover_upload.set_input_files(self.thumbnail_landscape_path)'
+    old_elif_landscape = '        elif self.thumbnail_landscape_path:'
+    new_if_landscape = '        if self.thumbnail_landscape_path:'
     upload_portrait_new = (
         '            async with page.expect_file_chooser(timeout=10000) as fc_info:\n'
         '                await cover_locator.get_by_text("上传封面", exact=True).last.click(force=True)\n'
@@ -55,18 +58,24 @@ def patch():
         '            file_chooser = await fc_info.value\n'
         '            await file_chooser.set_files(self.thumbnail_landscape_path)'
     )
-    if 'page.expect_file_chooser(timeout=10000)' in code:
-        print('[OK] step2b: cover upload uses visible button file chooser already patched')
-    elif (cover_input_old_1 in code or cover_input_old_2 in code) and upload_portrait_old in code and upload_landscape_old in code:
-        code = code.replace(cover_input_old_1, '# cover upload is handled by visible button file chooser', 1)
-        code = code.replace(cover_input_old_2, '# cover upload is handled by visible button file chooser', 1)
-        code = code.replace(upload_portrait_old, upload_portrait_new, 1)
-        code = code.replace(upload_landscape_old, upload_landscape_new, 1)
-        print('[OK] step2b: cover upload input -> visible button file chooser')
+    if 'page.expect_file_chooser(timeout=10000)' in code and old_elif_landscape not in code and new_if_landscape in code:
+        print('[OK] step2b: cover upload uses visible button file chooser and uploads both covers already patched')
     else:
-        print('[FAIL] step2b: cover upload markers not found')
-        ok = False
-
+        patched_upload = False
+        if (cover_input_old_1 in code or cover_input_old_2 in code) and upload_portrait_old in code and upload_landscape_old in code:
+            code = code.replace(cover_input_old_1, '# cover upload is handled by visible button file chooser', 1)
+            code = code.replace(cover_input_old_2, '# cover upload is handled by visible button file chooser', 1)
+            code = code.replace(upload_portrait_old, upload_portrait_new, 1)
+            code = code.replace(upload_landscape_old, upload_landscape_new, 1)
+            patched_upload = True
+        if old_elif_landscape in code:
+            code = code.replace(old_elif_landscape, new_if_landscape, 1)
+            patched_upload = True
+        if patched_upload:
+            print('[OK] step2b: cover upload uses file chooser and uploads portrait + landscape')
+        else:
+            print('[FAIL] step2b: cover upload markers not found')
+            ok = False
     # ── 步骤 3: 封面"完成"按钮 — 等页面自然接收封面状态, 不过早强制移除弹窗 ──
     lines = code.split('\n')
     click_line_idx = None
