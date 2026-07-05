@@ -544,7 +544,8 @@ class Pipeline:
 
         def add_evt(start, end, text):
             text = subtitle_text(text)
-            start = max(start, cover_duration)
+            start += cover_duration
+            end += cover_duration
             if text and end > start:
                 evts.append(f"Dialogue: 1,{ft(start)},{ft(end)},Default,,0,0,0,,{ass_text(text)}")
                 evt_times.append((start, end))
@@ -555,9 +556,10 @@ class Pipeline:
             evts, evt_times = [], []
             tsc = sum(len(l) for l in alls) if alls else 1
             cur = 0.0
+            subtitle_duration = max(tdur - cover_duration, 1.0)
             for l in alls:
-                d = (len(l) / tsc) * tdur if tsc else tdur / len(alls)
-                e = min(cur + d, tdur)
+                d = (len(l) / tsc) * subtitle_duration if tsc else subtitle_duration / len(alls)
+                e = min(cur + d, subtitle_duration)
                 add_evt(cur, e, l)
                 cur = e
 
