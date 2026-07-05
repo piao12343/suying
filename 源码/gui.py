@@ -1575,7 +1575,7 @@ class App:
         vf1 = (f"drawbox=x=0:y=870:w=1080:h=220:color=white@0.6:t=fill:enable='{cover_expr}',"
                f"drawtext=fontfile='C\\:/Windows/Fonts/msyhbd.ttc':text='{te}'"
                f":fontsize=128:fontcolor=0xFFE600:borderw=9:bordercolor=black"
-               f":x=(w-text_w)/2:y=905:enable='{cover_expr}',"
+               f":x=(w-text_w)/2:y=918:enable='{cover_expr}',"
                f"drawtext=fontfile='C\\:/Windows/Fonts/msyhbd.ttc':text='全'"
                f":fontsize=82:fontcolor=0xFFE600:borderw=7:bordercolor=black"
                f":x=(w-text_w)/2:y=1210:enable='{cover_expr}',"
