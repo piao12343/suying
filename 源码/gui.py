@@ -1473,7 +1473,7 @@ class App:
         estimated_duration = sum(x['duration'] for x in self.segments)
         audio_duration = probe_media_duration(ffmpeg, self.audio_path, estimated_duration)
         target_duration = max(audio_duration, 1.0)
-        cover_duration = 2 / fps
+        cover_duration = 1.0
         output_duration = target_duration + cover_duration
         audio_delay_ms = int(round(cover_duration * 1000))
         self.log(f'  音频基准时长: {target_duration:.1f}s, 封面静音: {cover_duration:.3f}s')

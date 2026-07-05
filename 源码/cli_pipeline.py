@@ -386,7 +386,7 @@ class Pipeline:
         estimated_duration = sum(x['duration'] for x in self.segments)
         audio_duration = probe_media_duration(ffmpeg, self.audio_path, estimated_duration)
         target_duration = max(audio_duration, 1.0)
-        cover_duration = 2 / fps
+        cover_duration = 1.0
         output_duration = target_duration + cover_duration
         audio_delay_ms = int(round(cover_duration * 1000))
         log(f'  音频基准时长: {target_duration:.1f}s, 封面静音: {cover_duration:.3f}s')
@@ -706,6 +706,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 log(f'  定时发布时间解析失败, 改为立即发布: {e}')
                 publish_strategy = 'immediate'
 
+        thumbnail_portrait_path = self.cover_portrait_path
+        thumbnail_landscape_path = self.cover_landscape_path
+        if os.environ.get('GITHUB_ACTIONS') == 'true':
+            log('  云端发布: 不上传自定义封面, 使用抖音第一个推荐封面')
+            thumbnail_portrait_path = None
+            thumbnail_landscape_path = None
+
         kwargs = dict(
             video_path=str(video_path),
             title=title[:30],
@@ -715,8 +722,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             publish_date=parsed_publish_date,
             headless=True,
             debug=False,
-            thumbnail_portrait_path=self.cover_portrait_path,
-            thumbnail_landscape_path=self.cover_landscape_path,
+            thumbnail_portrait_path=thumbnail_portrait_path,
+            thumbnail_landscape_path=thumbnail_landscape_path,
         )
 
         log(f'  标题: {title[:30]}')

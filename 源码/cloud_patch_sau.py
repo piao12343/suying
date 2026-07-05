@@ -2,18 +2,8 @@
 云端适配补丁: 修改 social-auto-upload 的 douyin_uploader 以适配慢速云端环境
 在 workflow 中克隆 social-auto-upload 后运行此脚本
 
-v4: 封面弹窗在云端无法自然关闭, 点击"完成"后等10秒再用JS强制移除所有遮挡层
-    已测试通过 (2026-06-22), 自定义封面可正常设置并发布成功
-
-备选方案 (如果JS移除方案失效):
-    跳过自定义封面, 让抖音自动选推荐封面
-    只需把步骤3的 new_block 替换为以下内容:
-        new_block = [
-            f'{pad}douyin_logger.info(_msg("\\U0001f4f7", "\\u4e91\\u7aef\\u8df3\\u8fc7\\u81ea\\u5b9a\\u4e49\\u5c01\\u9762, \\u53d1\\u5e03\\u65f6\\u81ea\\u52a8\\u9009\\u62e9\\u63a8\\u8350\\u5c01\\u9762"))',
-            f'{pad}return',
-        ]
-    这样 set_thumbnail 直接 return, 不上传封面, 发布时由 handle_auto_video_cover 自动选推荐封面
-    此方案也已测试通过 (2026-06-22)
+v5: 云端改为不传自定义封面, 使用抖音第一个推荐封面。
+    视频开头保留标题画面, 推荐封面优先从视频前段抽取, 避免自定义封面上传后页面仍提示未设置导致卡死。
 """
 import sys
 
@@ -150,10 +140,10 @@ def patch():
     )
     auto_cover_marker = '    async def handle_auto_video_cover(self, page):\n'
     if auto_cover_guard in code:
-        print('[OK] step6a: custom cover blocks auto recommended cover already patched')
+        code = code.replace(auto_cover_guard, auto_cover_marker, 1)
+        print('[OK] step6a: removed custom cover block, recommended cover fallback allowed')
     elif auto_cover_marker in code:
-        code = code.replace(auto_cover_marker, auto_cover_guard, 1)
-        print('[OK] step6a: custom cover will block auto recommended cover')
+        print('[OK] step6a: recommended cover fallback allowed')
     else:
         print('[FAIL] step6a: handle_auto_video_cover marker not found')
         ok = False
