@@ -242,14 +242,18 @@ def download_and_extract_audio(video_url, output_path):
                 '-ac', '1',      # mono
                 str(output_path),
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, **NW)
-            if result.returncode == 0:
-                elapsed = time.perf_counter() - started
-                print(f"   音频已保存: {output_path} (用时 {elapsed:.1f} 秒)")
-                return
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, **NW)
+                if result.returncode == 0:
+                    elapsed = time.perf_counter() - started
+                    print(f"   音频已保存: {output_path} (用时 {elapsed:.1f} 秒)")
+                    return
 
-            last_error = result.stderr[-300:]
-            print(f"   地址{url_idx} ffmpeg直连失败: {last_error}")
+                last_error = result.stderr[-300:]
+                print(f"   地址{url_idx} ffmpeg直连失败: {last_error}")
+            except subprocess.TimeoutExpired:
+                last_error = 'ffmpeg直连超时'
+                print(f"   地址{url_idx} ffmpeg直连超时, 改用备用下载")
 
             for attempt in range(1, 4):
                 if tmp_video.exists():
