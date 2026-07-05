@@ -2,8 +2,8 @@
 云端适配补丁: 修改 social-auto-upload 的 douyin_uploader 以适配慢速云端环境
 在 workflow 中克隆 social-auto-upload 后运行此脚本
 
-v5: 云端改为不传自定义封面, 使用抖音第一个推荐封面。
-    视频开头保留标题画面, 推荐封面优先从视频前段抽取, 避免自定义封面上传后页面仍提示未设置导致卡死。
+v5: 自定义封面优先。点击封面“完成”后等待抖音页面自然接收封面状态；
+    如果自定义封面仍未生效, 发布时再自动改用第一个推荐封面兜底。
 """
 import sys
 
@@ -37,7 +37,7 @@ def patch():
         else:
             print(f'[WARN] step2: {variant} cover pattern not found (may already be patched)')
 
-    # ── 步骤 3: 封面"完成"按钮 — 按行匹配, 点击后JS强制移除弹窗 ──
+    # ── 步骤 3: 封面"完成"按钮 — 等页面自然接收封面状态, 不过早强制移除弹窗 ──
     lines = code.split('\n')
     click_line_idx = None
     detach_line_idx = None
@@ -49,8 +49,29 @@ def patch():
             detach_line_idx = i
             break
 
-    if 'cover_locator.is_visible()' in code and 'dy-creator-content-modal-wrap' in code:
-        print('[OK] step3: JS force-remove cover modal already patched')
+    natural_cover_done = 'await cover_locator.wait_for(state="detached", timeout=60000)'
+    old_force_remove_start = '        finish_btn = cover_locator.get_by_role("button", name="完成", exact=True).first\n'
+    old_force_remove_end = '            douyin_logger.info(_msg("\\U0001f973", f"\\u5c01\\u9762\\u5f39\\u7a97\\u5904\\u7406\\u5b8c\\u6210: {_e}"))'
+    if natural_cover_done in code:
+        print('[OK] step3: cover finish waits for natural close already patched')
+    elif old_force_remove_start in code and old_force_remove_end in code:
+        start = code.index(old_force_remove_start)
+        end = code.index(old_force_remove_end, start) + len(old_force_remove_end)
+        new_block_text = (
+            '        finish_btn = cover_locator.get_by_role("button", name="完成", exact=True).first\n'
+            '        await asyncio.sleep(2)\n'
+            '        await finish_btn.click(force=True)\n'
+            '        douyin_logger.info(_msg("🥳", "已点击封面完成, 等待抖音应用封面..."))\n'
+            '        try:\n'
+            '            await cover_locator.wait_for(state="detached", timeout=60000)\n'
+            '            douyin_logger.info(_msg("🥳", "自定义封面已应用"))\n'
+            '        except Exception:\n'
+            '            douyin_logger.warning(_msg("😵", "自定义封面等待超时, 关闭弹窗后发布时改用推荐封面兜底"))\n'
+            '            await page.evaluate(\'() => { document.querySelectorAll(".dy-creator-content-modal-wrap, .dy-creator-content-modal-mask, .dy-creator-content-modal, .dy-creator-content-portal").forEach(e => e.remove()); }\')\n'
+            '            await asyncio.sleep(2)'
+        )
+        code = code[:start] + new_block_text + code[end:]
+        print('[OK] step3: removed early force-close, waits for Douyin to apply custom cover')
     elif click_line_idx is not None and detach_line_idx is not None:
         # 检测缩进
         indent = len(lines[click_line_idx]) - len(lines[click_line_idx].lstrip())
@@ -64,24 +85,18 @@ def patch():
             f'{pad}finish_btn = cover_locator.get_by_role("button", name="\u5b8c\u6210", exact=True).first',
             f'{pad}await asyncio.sleep(2)',
             f'{pad}await finish_btn.click(force=True)',
-            f'{pad}douyin_logger.info(_msg("\\U0001f973", "\\u5df2\\u70b9\\u51fb\\u5c01\\u9762\\u5b8c\\u6210, \\u7b49\\u5f85\\u5f39\\u7a97\\u5173\\u95ed..."))',
-            f'{pad}# \u4e91\\u7aef\\u5f39\\u7a97\\u65e0\\u6cd5\\u81ea\\u7136\\u5173\\u95ed, \\u7b49 10 \\u79d2\\u540e JS \\u5f3a\\u5236\\u79fb\\u9664',
-            f'{pad}await asyncio.sleep(10)',
+            f'{pad}douyin_logger.info(_msg("\\U0001f973", "\\u5df2\\u70b9\\u51fb\\u5c01\\u9762\\u5b8c\\u6210, \\u7b49\\u5f85\\u6296\\u97f3\\u5e94\\u7528\\u5c01\\u9762..."))',
             f'{pad}try:',
-            f'{pad}    still_visible = await cover_locator.is_visible()',
-            f'{pad}    if still_visible:',
-            f'{pad}        douyin_logger.info(_msg("\\U0001f527", "\\u5f39\\u7a97\\u4ecd\\u7136\\u5b58\\u5728, JS \\u5f3a\\u5236\\u79fb\\u9664..."))',
-            f'{pad}        await page.evaluate(\'() => {{ document.querySelectorAll(".dy-creator-content-modal-wrap, .dy-creator-content-modal-mask, .dy-creator-content-modal, .dy-creator-content-portal").forEach(e => e.remove()); }}\')',
-            f'{pad}        await asyncio.sleep(2)',
-            f'{pad}        douyin_logger.info(_msg("\\U0001f973", "\\u5c01\\u9762\\u5f39\\u7a97\\u5df2\\u5f3a\\u5236\\u79fb\\u9664"))',
-            f'{pad}    else:',
-            f'{pad}        douyin_logger.info(_msg("\\U0001f973", "\\u5c01\\u9762\\u5f39\\u7a97\\u5df2\\u81ea\\u7136\\u5173\\u95ed"))',
-            f'{pad}except Exception as _e:',
-            f'{pad}    douyin_logger.info(_msg("\\U0001f973", f"\\u5c01\\u9762\\u5f39\\u7a97\\u5904\\u7406\\u5b8c\\u6210: {{_e}}"))',
+            f'{pad}    await cover_locator.wait_for(state="detached", timeout=60000)',
+            f'{pad}    douyin_logger.info(_msg("\\U0001f973", "\\u81ea\\u5b9a\\u4e49\\u5c01\\u9762\\u5df2\\u5e94\\u7528"))',
+            f'{pad}except Exception:',
+            f'{pad}    douyin_logger.warning(_msg("\\U0001f635", "\\u81ea\\u5b9a\\u4e49\\u5c01\\u9762\\u7b49\\u5f85\\u8d85\\u65f6, \\u5173\\u95ed\\u5f39\\u7a97\\u540e\\u53d1\\u5e03\\u65f6\\u6539\\u7528\\u63a8\\u8350\\u5c01\\u9762\\u515c\\u5e95"))',
+            f'{pad}    await page.evaluate(\'() => {{ document.querySelectorAll(".dy-creator-content-modal-wrap, .dy-creator-content-modal-mask, .dy-creator-content-modal, .dy-creator-content-portal").forEach(e => e.remove()); }}\')',
+            f'{pad}    await asyncio.sleep(2)',
         ]
         lines[click_line_idx:detach_line_idx + 1] = new_block
         code = '\n'.join(lines)
-        print('[OK] step3: replaced with JS force-remove code')
+        print('[OK] step3: waits for Douyin to apply custom cover')
     else:
         print(f'[FAIL] step3: click_line={click_line_idx}, detach_line={detach_line_idx}')
         ok = False

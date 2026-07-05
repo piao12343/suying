@@ -706,13 +706,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 log(f'  定时发布时间解析失败, 改为立即发布: {e}')
                 publish_strategy = 'immediate'
 
-        thumbnail_portrait_path = self.cover_portrait_path
-        thumbnail_landscape_path = self.cover_landscape_path
-        if os.environ.get('GITHUB_ACTIONS') == 'true':
-            log('  云端发布: 不上传自定义封面, 使用抖音第一个推荐封面')
-            thumbnail_portrait_path = None
-            thumbnail_landscape_path = None
-
         kwargs = dict(
             video_path=str(video_path),
             title=title[:30],
@@ -722,8 +715,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             publish_date=parsed_publish_date,
             headless=True,
             debug=False,
-            thumbnail_portrait_path=thumbnail_portrait_path,
-            thumbnail_landscape_path=thumbnail_landscape_path,
+            thumbnail_portrait_path=self.cover_portrait_path,
+            thumbnail_landscape_path=self.cover_landscape_path,
         )
 
         log(f'  标题: {title[:30]}')
