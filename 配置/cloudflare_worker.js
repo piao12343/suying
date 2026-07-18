@@ -234,11 +234,23 @@ async function ensureWorkflowRunning(env, debugLogsEnabled = false) {
 async function reservePublishSchedule(env, intervalMinutes) {
   const intervalMs = Math.max(0, intervalMinutes) * 60 * 1000;
   const now = Date.now();
+  const followingStep = intervalMs || 30 * 60 * 1000;
+  const beijingDate = new Date(now + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const lastImmediateDate = await env.LINKS.get('last_immediate_publish_date');
+
+  if (lastImmediateDate !== beijingDate) {
+    await env.LINKS.put('last_immediate_publish_date', beijingDate);
+    await env.LINKS.put(
+      'next_publish_time',
+      new Date(now + followingStep).toISOString(),
+    );
+    return { strategy: 'immediate', publishDate: '' };
+  }
+
   const minPublishAt = now + 2 * 60 * 60 * 1000;
   const raw = await env.LINKS.get('next_publish_time');
   const next = raw ? Date.parse(raw) : NaN;
   const publishAt = Number.isFinite(next) && next >= minPublishAt ? next : minPublishAt;
-  const followingStep = intervalMs || 30 * 60 * 1000;
 
   const publishDate = new Date(publishAt).toISOString();
   const following = new Date(publishAt + followingStep).toISOString();
