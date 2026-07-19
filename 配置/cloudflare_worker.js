@@ -153,7 +153,7 @@ export default {
         oldImages = [];
       }
       const merged = [...oldImages, ...incoming]
-        .filter(item => item && (item.id || item.url))
+        .filter(item => item && (item.id || item.url || item.hash))
         .map(item => ({
           id: String(item.id || ''),
           url: String(item.url || ''),
