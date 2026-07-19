@@ -66,6 +66,7 @@ def parse_rewrite_output(text, fallback_title=''):
         title = nested_title or title
         narration = nested_body
         has_format = True
+    title, narration = strip_leading_title_repetition(title, narration)
     return title, to_simplified(narration).strip(), has_format
 
 
@@ -77,6 +78,20 @@ def parse_leading_rewrite_block(text):
     if not (title_match and body_match and body_match.start() >= title_match.end()):
         return '', text, False
     return title_match.group(1).strip(), body_match.group(1).strip(), True
+
+
+def strip_leading_title_repetition(title, narration):
+    """移除正文开头重复出现的标题。"""
+    title = to_simplified(str(title or '')).strip()
+    narration = to_simplified(str(narration or '')).strip()
+    if not title or not narration:
+        return title, narration
+
+    pattern = rf'^{re.escape(title)}(?:[。！？?!、，,：:；;\s]+|$)'
+    m = re.match(pattern, narration)
+    if m:
+        return title, narration[m.end():].lstrip()
+    return title, narration
 
 def load_config(script_dir):
     """加载配置文件, 支持脚本同目录和当前目录"""
@@ -1073,17 +1088,7 @@ def main():
         sys.exit(1)
 
     text = narration_file.read_text(encoding='utf-8').strip()
-
-    # 提取标题和正文
-    title_match = re.search(r'【标题】\s*\n(.+)', text)
-    body_match = re.search(r'【优化口播文案】\s*\n([\s\S]+)', text)
-    if title_match and body_match:
-        title = title_match.group(1).strip()
-        narration = body_match.group(1).strip()
-    else:
-        # 没有格式标记, 全文作为口播文案
-        title = narration_file.stem[:10]
-        narration = text
+    title, narration, _ = parse_rewrite_output(text, narration_file.stem[:10])
 
     print(f"{'='*60}")
     print(f" 抖音短视频自动化流水线")
