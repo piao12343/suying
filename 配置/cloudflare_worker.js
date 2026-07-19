@@ -157,13 +157,14 @@ export default {
         .map(item => ({
           id: String(item.id || ''),
           url: String(item.url || ''),
+          hash: String(item.hash || ''),
           used_at: String(item.used_at || new Date().toISOString()),
         }));
       const unique = [];
       const seen = new Set();
       for (let i = merged.length - 1; i >= 0; i -= 1) {
         const item = merged[i];
-        const key = item.id ? `id:${item.id}` : `url:${item.url}`;
+        const key = item.id ? `id:${item.id}` : item.hash ? `hash:${item.hash}` : `url:${item.url}`;
         if (seen.has(key)) continue;
         seen.add(key);
         unique.push(item);

@@ -6,6 +6,7 @@
 可移植设计: 所有配置通过 config.json 管理, 不硬编码路径
 """
 
+import hashlib
 import os
 import sys
 import json
@@ -377,6 +378,18 @@ def download_image(url, save_path, timeout=30):
     return False
 
 
+def image_file_hash(image_path):
+    """计算图片内容哈希, 用于跨视频识别同一张图。"""
+    digest = hashlib.sha256()
+    try:
+        with open(image_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return ''
+
+
 def inspect_image_quality(image_path, min_width=1080, min_height=1600):
     """检查图片尺寸和基础视觉质量, 返回分数, 不合格返回 None。"""
     try:
@@ -428,6 +441,8 @@ def load_image_history(config):
                     keys.add(f"id:{item['id']}")
                 if item.get('url'):
                     keys.add(f"url:{item['url']}")
+                if item.get('hash'):
+                    keys.add(f"hash:{item['hash']}")
         print(f'   已加载近期图片历史: {len(keys)} 个标识')
         return keys
     except Exception as exc:
@@ -593,6 +608,15 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
                 query_downloads += 1
                 if not download_image(image_url, save_path):
                     continue
+                image_hash = image_file_hash(save_path)
+                if image_hash and f'hash:{image_hash}' in used_image_keys:
+                    try:
+                        save_path.unlink()
+                    except OSError:
+                        pass
+                    continue
+                if image_hash:
+                    keys.add(f'hash:{image_hash}')
                 score = inspect_image_quality(save_path)
                 if score is None:
                     try:
@@ -631,6 +655,7 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
             history_entries.append({
                 'id': candidate.get('id', ''),
                 'url': candidate.get('url', ''),
+                'hash': next((key[5:] for key in keys if key.startswith('hash:')), ''),
                 'used_at': datetime.now(timezone.utc).isoformat(),
             })
             downloaded = True
