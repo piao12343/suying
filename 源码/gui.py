@@ -664,10 +664,8 @@ class App:
                 txt = self.t2_text.get('1.0', 'end').strip()
                 if not txt:
                     return
-                tm = re.search(r'【标题】\s*\n?(.+)', txt)
-                bm = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt)
-                t = tm.group(1).strip() if tm else ''
-                b = bm.group(1).strip() if bm else txt
+                from video_pipeline import parse_rewrite_output
+                t, b, _ = parse_rewrite_output(txt, self.title)
                 if t and b:
                     self.title = t
                     self.narration = b
@@ -1266,6 +1264,7 @@ class App:
     def _step1_extract(self, douyin_input):
         from extract_narration import (extract_share_url, resolve_video_id,
             get_video_info, download_and_extract_audio, transcribe_audio)
+        from video_pipeline import to_simplified
 
         self.set_step(1, 'active')
         self.set_status('提取文案中...')
@@ -1301,6 +1300,7 @@ class App:
             raw = Path(douyin_input).read_text(encoding='utf-8').strip()
             self.log(f'  已加载文案: {len(raw)}字')
 
+        raw = to_simplified(raw)
         self.log(f'  文案长度: {len(raw)} 字')
         self.raw_narration = raw
 
@@ -1312,17 +1312,16 @@ class App:
 
     def _step2_rewrite(self):
         config = load_config()
+        from video_pipeline import parse_rewrite_output, to_simplified
 
         self.set_step(2, 'active')
         self.set_status('AI改写中...')
         self.log('=' * 50)
         self.log('[步骤2/7] AI改写文案...')
 
-        raw = self.raw_narration
-        tm = re.search(r'【标题】\s*\n?(.+)', raw)
-        bm = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', raw)
-        if tm and bm:
-            title, narration = tm.group(1).strip(), bm.group(1).strip()
+        raw = to_simplified(self.raw_narration)
+        title, narration, has_format = parse_rewrite_output(raw, raw[:6])
+        if has_format:
             self.log('  已有格式标记, 跳过改写')
         else:
             tpl = (CFG_DIR / 'ai生故事模板.txt').read_text(encoding='utf-8-sig')
@@ -1331,7 +1330,10 @@ class App:
             if learn_ctx:
                 prompt += '\n\n' + learn_ctx
                 self.log('  已注入学习偏好')  # Learning preference injected
-            prompt += '\n\n' + raw
+            prompt += (
+                '\n\n硬性语言要求：所有输出必须使用简体中文，禁止输出繁体中文。'
+                '\n\n' + raw
+            )
             self.log(f'  模型: {config["openrouter_model"]}')
             d = call_openrouter_chat(
                 config,
@@ -1343,10 +1345,7 @@ class App:
             txt = d['choices'][0]['message']['content'].strip()
             usage = d.get('usage', {})
             self.log(f'  tokens: {usage.get("total_tokens", 0)}, cost: ${usage.get("cost", 0)}')
-            t2 = re.search(r'【标题】\s*\n?(.+)', txt)
-            b2 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt)
-            title = t2.group(1).strip() if t2 else raw[:6]
-            narration = b2.group(1).strip() if b2 else txt
+            title, narration, _ = parse_rewrite_output(txt, raw[:6])
             for compress_idx in range(1, 3):
                 if len(narration) <= 1400:
                     break
@@ -1369,7 +1368,8 @@ class App:
                     '- 如果压缩后仍可能超过1400字，继续删减重复情绪、旁枝细节和长对话。\n'
                     '- 标题保持不变，不要换标题。\n'
                     '- 不要解释你删了什么。\n'
-                    '- 严格只输出下面两段，不要添加任何多余文字。\n\n'
+                    '- 严格只输出下面两段，不要添加任何多余文字。\n'
+                    '- 所有输出必须使用简体中文，禁止输出繁体中文。\n\n'
                     '【标题】\n'
                     f'{title}\n\n'
                     '【优化口播文案】\n'
@@ -1385,12 +1385,16 @@ class App:
                 txt2 = d2['choices'][0]['message']['content'].strip()
                 usage2 = d2.get('usage', {})
                 self.log(f'  第{compress_idx}次压缩 tokens: {usage2.get("total_tokens", 0)}, cost: ${usage2.get("cost", 0)}')
-                b3 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt2)
-                narration = b3.group(1).strip() if b3 else txt2
+                title2, narration2, has_format2 = parse_rewrite_output(txt2, title)
+                if has_format2:
+                    title, narration = title2 or title, narration2
+                else:
+                    narration = to_simplified(txt2)
                 self.log(f'  第{compress_idx}次压缩后文案: {len(narration)} 字')
 
-        self.title = title
-        self.narration = narration
+        self.title = to_simplified(title).strip()
+        self.narration = to_simplified(narration).strip()
+        title, narration = self.title, self.narration
         self.log(f'  标题: {title}')
         self.log(f'  改写文案: {len(narration)} 字')
 
@@ -1412,10 +1416,12 @@ class App:
         self.log_q.put(('tab', 1))
 
     def _step3_split(self):
-        from video_pipeline import ai_split_narration
+        from video_pipeline import ai_split_narration, to_simplified
         config = load_config()
 
         self._auto_save_edits()
+        self.title = to_simplified(self.title).strip()
+        self.narration = to_simplified(self.narration).strip()
 
         self.set_step(3, 'active')
         self.set_status('分镜切分中...')
@@ -1474,10 +1480,11 @@ class App:
         self.log_q.put(('tab', 3))
 
     def _step5_tts(self):
-        from video_pipeline import generate_tts
+        from video_pipeline import generate_tts, to_simplified
         config = load_config()
 
         self._auto_save_edits()
+        self.narration = to_simplified(self.narration).strip()
 
         self.set_step(5, 'active')
         self.set_status('TTS合成中...')
@@ -1497,7 +1504,7 @@ class App:
         self.log_q.put(('tab', 4))
 
     def _step6_render(self):
-        from video_pipeline import create_kenburns_clip
+        from video_pipeline import create_kenburns_clip, to_simplified
         config = load_config()
         ffmpeg = config['ffmpeg_path']
 
@@ -1662,6 +1669,7 @@ class App:
             return rs
 
         def subtitle_text(text):
+            text = to_simplified(text)
             text = re.sub(r'[\r\n]+', ' ', text).strip()
             return re.sub(r'[，,。.!！？?；;、：:]+$', '', text).strip()
 

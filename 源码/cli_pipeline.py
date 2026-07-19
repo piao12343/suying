@@ -223,6 +223,7 @@ class Pipeline:
     def step1_extract(self, douyin_input):
         from extract_narration import (extract_share_url, resolve_video_id,
             get_video_info, download_and_extract_audio, transcribe_audio)
+        from video_pipeline import to_simplified
 
         log('=' * 50)
         log('[步骤1/7] 提取抖音文案...')
@@ -257,19 +258,20 @@ class Pipeline:
             raw = Path(douyin_input).read_text(encoding='utf-8').strip()
             log(f'  已加载文案: {len(raw)}字')
 
+        raw = to_simplified(raw)
         log(f'  文案长度: {len(raw)} 字')
         self.raw_narration = raw
 
     # -------- Step 2: AI rewrite --------
     def step2_rewrite(self):
+        from video_pipeline import parse_rewrite_output, to_simplified
+
         log('=' * 50)
         log('[步骤2/7] AI改写文案...')
 
-        raw = self.raw_narration
-        tm = re.search(r'【标题】\s*\n?(.+)', raw)
-        bm = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', raw)
-        if tm and bm:
-            title, narration = tm.group(1).strip(), bm.group(1).strip()
+        raw = to_simplified(self.raw_narration)
+        title, narration, has_format = parse_rewrite_output(raw, raw[:6])
+        if has_format:
             log('  已有格式标记, 跳过改写')
         else:
             tpl = self.config.get('rewrite_template_text')
@@ -282,7 +284,10 @@ class Pipeline:
             if learn_ctx:
                 prompt += '\n\n' + learn_ctx
                 log('  已注入学习偏好')
-            prompt += '\n\n' + raw
+            prompt += (
+                '\n\n硬性语言要求：所有输出必须使用简体中文，禁止输出繁体中文。'
+                '\n\n' + raw
+            )
 
             log(f'  模型: {self.config["openrouter_model"]}')
             d = call_openrouter_chat(
@@ -295,10 +300,7 @@ class Pipeline:
             txt = d['choices'][0]['message']['content'].strip()
             usage = d.get('usage', {})
             log(f'  tokens: {usage.get("total_tokens", 0)}, cost: ${usage.get("cost", 0)}')
-            t2 = re.search(r'【标题】\s*\n?(.+)', txt)
-            b2 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt)
-            title = t2.group(1).strip() if t2 else raw[:6]
-            narration = b2.group(1).strip() if b2 else txt
+            title, narration, _ = parse_rewrite_output(txt, raw[:6])
             for compress_idx in range(1, 3):
                 if len(narration) <= 1400:
                     break
@@ -321,7 +323,8 @@ class Pipeline:
                     '- 如果压缩后仍可能超过1400字，继续删减重复情绪、旁枝细节和长对话。\n'
                     '- 标题保持不变，不要换标题。\n'
                     '- 不要解释你删了什么。\n'
-                    '- 严格只输出下面两段，不要添加任何多余文字。\n\n'
+                    '- 严格只输出下面两段，不要添加任何多余文字。\n'
+                    '- 所有输出必须使用简体中文，禁止输出繁体中文。\n\n'
                     '【标题】\n'
                     f'{title}\n\n'
                     '【优化口播文案】\n'
@@ -337,12 +340,16 @@ class Pipeline:
                 txt2 = d2['choices'][0]['message']['content'].strip()
                 usage2 = d2.get('usage', {})
                 log(f'  第{compress_idx}次压缩 tokens: {usage2.get("total_tokens", 0)}, cost: ${usage2.get("cost", 0)}')
-                b3 = re.search(r'【优化口播文案】\s*\n?([\s\S]+)', txt2)
-                narration = b3.group(1).strip() if b3 else txt2
+                title2, narration2, has_format2 = parse_rewrite_output(txt2, title)
+                if has_format2:
+                    title, narration = title2 or title, narration2
+                else:
+                    narration = to_simplified(txt2)
                 log(f'  第{compress_idx}次压缩后文案: {len(narration)} 字')
 
-        self.title = title
-        self.narration = narration
+        self.title = to_simplified(title).strip()
+        self.narration = to_simplified(narration).strip()
+        title, narration = self.title, self.narration
         log(f'  标题: {title}')
         log(f'  改写文案: {len(narration)} 字')
 
@@ -356,11 +363,13 @@ class Pipeline:
 
     # -------- Step 3: Storyboard split --------
     def step3_split(self):
-        from video_pipeline import ai_split_narration
+        from video_pipeline import ai_split_narration, to_simplified
 
         log('=' * 50)
         log('[步骤3/7] 分镜切分...')
 
+        self.title = to_simplified(self.title).strip()
+        self.narration = to_simplified(self.narration).strip()
         num_shots = self.config.get('num_shots', 5)
         log(f'  尝试AI按故事情节分镜, 最多 {num_shots} 段...')
         segs = ai_split_narration(self.narration, self.config, num_shots, log_func=log)
@@ -398,8 +407,9 @@ class Pipeline:
 
     # -------- Step 5: TTS synthesis --------
     def step5_tts(self):
-        from video_pipeline import generate_tts
+        from video_pipeline import generate_tts, to_simplified
 
+        self.narration = to_simplified(self.narration).strip()
         log('=' * 50)
         log(f'[步骤5/7] TTS语音合成 ({self.config["tts_voice"]})...')
 
@@ -413,7 +423,7 @@ class Pipeline:
 
     # -------- Step 6: Video render --------
     def step6_render(self):
-        from video_pipeline import create_kenburns_clip
+        from video_pipeline import create_kenburns_clip, to_simplified
 
         ffmpeg = self.config['ffmpeg_path']
         fonts = get_font_config()
@@ -577,6 +587,7 @@ class Pipeline:
             return rs
 
         def subtitle_text(text):
+            text = to_simplified(text)
             text = re.sub(r'[\r\n]+', ' ', text).strip()
             return re.sub(r'[，,。.!！？?；;、：:]+$', '', text).strip()
 

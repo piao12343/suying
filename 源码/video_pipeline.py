@@ -15,6 +15,9 @@ import shutil
 import requests
 import subprocess
 from pathlib import Path
+from datetime import datetime, timezone
+
+from PIL import Image, ImageStat
 
 from ai_client import call_openrouter_chat
 
@@ -22,6 +25,57 @@ from ai_client import call_openrouter_chat
 NW = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
 
 # ============ 工具函数 ============
+
+_OPENCC_CONVERTER = None
+
+
+def to_simplified(text):
+    """将文本统一转换为简体中文。"""
+    global _OPENCC_CONVERTER
+    if not text:
+        return text
+    if _OPENCC_CONVERTER is None:
+        try:
+            from opencc import OpenCC
+        except ImportError as exc:
+            raise RuntimeError(
+                "缺少简繁转换依赖, 请先安装 opencc-python-reimplemented"
+            ) from exc
+        _OPENCC_CONVERTER = OpenCC('t2s')
+    return _OPENCC_CONVERTER.convert(str(text))
+
+
+def parse_rewrite_output(text, fallback_title=''):
+    """解析并清理 AI 改写结果, 返回 (标题, 正文, 是否包含格式标记)。"""
+    text = to_simplified(str(text or '').strip())
+    title_match = re.search(r'【标题】\s*\r?\n?\s*([^\r\n]+)', text)
+    body_match = re.search(r'【优化口播文案】\s*\r?\n?\s*([\s\S]*)', text)
+    has_format = bool(title_match and body_match)
+    title = title_match.group(1).strip() if title_match else to_simplified(fallback_title).strip()
+    if body_match:
+        narration = body_match.group(1).strip()
+    elif title_match:
+        narration = text[title_match.end():].strip()
+    else:
+        narration = text
+
+    # 防止模型在正文开头再次嵌套一套标题和正文标记。
+    nested_title, nested_body, nested = parse_leading_rewrite_block(narration)
+    if nested:
+        title = nested_title or title
+        narration = nested_body
+        has_format = True
+    return title, to_simplified(narration).strip(), has_format
+
+
+def parse_leading_rewrite_block(text):
+    """解析正文开头意外嵌入的标题块。"""
+    text = to_simplified(str(text or '').strip())
+    title_match = re.match(r'^【标题】\s*\r?\n?\s*([^\r\n]+)', text)
+    body_match = re.search(r'【优化口播文案】\s*\r?\n?\s*([\s\S]*)', text)
+    if not (title_match and body_match and body_match.start() >= title_match.end()):
+        return '', text, False
+    return title_match.group(1).strip(), body_match.group(1).strip(), True
 
 def load_config(script_dir):
     """加载配置文件, 支持脚本同目录和当前目录"""
@@ -64,6 +118,7 @@ def split_narration(text, num_shots=10):
     将口播文案按句子边界切分为多个分镜段落
     返回: [{"id": 1, "text": "...", "duration": 秒}, ...]
     """
+    text = to_simplified(text)
     sentences = _split_sentences(text)
 
     if not sentences:
@@ -126,6 +181,7 @@ def ai_split_narration(text, config, num_shots=5, log_func=print):
     用AI按故事情节决定分镜边界。
     AI只返回句子编号范围, 程序用原文拼接, 避免AI改写/删文案。
     """
+    text = to_simplified(text)
     sentences = _split_sentences(text)
     if not sentences:
         raise ValueError("文案为空, 无法分镜")
@@ -233,7 +289,8 @@ def ai_extract_image_keywords(segments, config, learning_context=''):
         "要求:\n"
         "- 关键词必须是英文, 偏向视觉画面描述 (人物、场景、动作、氛围)\n"
         "- 如果画面出现人物, 必须优先中国人/亚洲人, 关键词里写 chinese, 例如 chinese mother, elderly chinese woman, chinese family\n"
-        "- 画面适合民间故事频道: colorful, cinematic, rural village, folk tale mood\n"
+        "- 画面适合民间故事频道: colorful, vivid, bright natural light, cinematic, rural village, folk tale mood\n"
+        "- 优先真实摄影和清晰人物, 禁止使用 dark, gloomy, blurry, low quality, desaturated, illustration 等词\n"
         "- 每组关键词用逗号分隔, 2-4个单词的短语最佳\n"
         "- 严格按编号顺序输出, 格式: 编号. keyword1, keyword2\n"
         f"- 只输出关键词, 不要任何解释或多余文字\n{learn_part}\n"
@@ -270,8 +327,8 @@ def ai_extract_image_keywords(segments, config, learning_context=''):
 
 # ============ 步骤3: Pexels图片搜索 ============
 
-def search_pexels(query, api_key, per_page=3, orientation='portrait'):
-    """从Pexels搜索图片, 返回图片URL列表"""
+def search_pexels(query, api_key, per_page=8, orientation='portrait'):
+    """从Pexels搜索图片, 返回带尺寸和图片ID的候选列表。"""
     headers = {"Authorization": api_key}
     params = {
         "query": query,
@@ -288,13 +345,19 @@ def search_pexels(query, api_key, per_page=3, orientation='portrait'):
             print(f"   Pexels搜索失败 ({resp.status_code}): {query}")
             return []
         data = resp.json()
-        urls = []
+        candidates = []
         for photo in data.get('photos', []):
-            # 优先用 large2x (高分辨率), 回退到 original
-            url = photo['src'].get('large2x') or photo['src'].get('original', '')
+            # 原图通常比 large2x 更适合竖屏裁切, large2x 作为回退。
+            src = photo.get('src') or {}
+            url = src.get('original') or src.get('large2x', '')
             if url:
-                urls.append(url)
-        return urls
+                candidates.append({
+                    'id': str(photo.get('id') or ''),
+                    'url': url,
+                    'width': int(photo.get('width') or 0),
+                    'height': int(photo.get('height') or 0),
+                })
+        return candidates
     except Exception as e:
         print(f"   Pexels异常: {e}")
         return []
@@ -312,6 +375,81 @@ def download_image(url, save_path, timeout=30):
     except:
         pass
     return False
+
+
+def inspect_image_quality(image_path, min_width=1080, min_height=1600):
+    """检查图片尺寸和基础视觉质量, 返回分数, 不合格返回 None。"""
+    try:
+        with Image.open(image_path) as image:
+            width, height = image.size
+            if width < min_width or height < min_height:
+                return None
+            sample = image.convert('RGB').resize((64, 64))
+            stat = ImageStat.Stat(sample)
+            brightness = sum(stat.mean) / 3.0
+            hsv = sample.convert('HSV')
+            saturation = ImageStat.Stat(hsv).mean[1]
+            # 极暗或接近灰度的图片直接淘汰, 其余按明亮和饱和度排序。
+            if brightness < 45 or saturation < 8:
+                return None
+            area_score = min((width * height) / (1080 * 1600), 4.0)
+            bright_score = max(0.0, 1.0 - abs(brightness - 145.0) / 145.0)
+            color_score = min(saturation / 100.0, 1.5)
+            return area_score * 2.0 + bright_score + color_score
+    except Exception:
+        return None
+
+
+def _image_history_config(config):
+    url = str(config.get('listener_worker_url') or '').rstrip('/')
+    secret = str(config.get('listener_secret') or '')
+    return url, secret
+
+
+def load_image_history(config):
+    """从 Worker 读取近期已使用的图片 ID/URL, 失败时降级为空集合。"""
+    url, secret = _image_history_config(config)
+    if not url:
+        return set()
+    try:
+        resp = requests.get(
+            f'{url}/api/image-history',
+            params={'secret': secret},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            print(f'   图片历史读取失败 ({resp.status_code}), 本次仅做当前视频去重')
+            return set()
+        data = resp.json()
+        keys = set()
+        for item in data.get('images', []):
+            if isinstance(item, dict):
+                if item.get('id'):
+                    keys.add(f"id:{item['id']}")
+                if item.get('url'):
+                    keys.add(f"url:{item['url']}")
+        print(f'   已加载近期图片历史: {len(keys)} 个标识')
+        return keys
+    except Exception as exc:
+        print(f'   图片历史读取异常: {exc}, 本次仅做当前视频去重')
+        return set()
+
+
+def save_image_history(config, entries):
+    """把本次选中的图片写回 Worker, 失败不阻塞视频生成。"""
+    url, secret = _image_history_config(config)
+    if not url or not entries:
+        return
+    try:
+        resp = requests.post(
+            f'{url}/api/image-history',
+            json={'secret': secret, 'images': entries},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            print(f'   图片历史写入失败 ({resp.status_code})')
+    except Exception as exc:
+        print(f'   图片历史写入异常: {exc}')
 
 
 def select_story_image_segments(segments, max_images=5):
@@ -354,6 +492,7 @@ def fill_missing_story_images(segments, results):
                 'id': seg['id'],
                 'image_path': current['image_path'],
                 'search_query': current.get('search_query', ''),
+                'image_id': current.get('image_id', ''),
                 'reused_from': current['id'],
             })
     return filled
@@ -392,6 +531,9 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
 
     results = []
     used_queries = set()
+    recent_history = load_image_history(config)
+    used_image_keys = set(recent_history)
+    history_entries = []
 
     for i, seg in enumerate(search_segments):
         print(f"   分镜 {seg['id']}: 搜索图片...")
@@ -400,7 +542,7 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
         query = None
         source = ''
 
-        # 1) AI关键词
+        # 1) AI关键词, 最多尝试两个候选词
         if seg['id'] in ai_keywords:
             kws = ai_keywords[seg['id']]
             query = kws[0] if kws else None
@@ -411,53 +553,95 @@ def search_and_download_images(segments, config, output_dir, learning_context=''
             query = fallback_terms[i % len(fallback_terms)]
             source = '泛用'
 
-        # 避免重复搜索
-        query = prefer_chinese_people_query(query)
-        if query in used_queries:
-            query = query + " aesthetic"
-        used_queries.add(query)
+        # 关键词优先级: AI 前两个候选词, 再用泛用词兜底。
+        query_candidates = []
+        if seg['id'] in ai_keywords:
+            query_candidates.extend(ai_keywords[seg['id']][:2])
+        if not query_candidates and query:
+            query_candidates.append(query)
+        query_candidates.append(fallback_terms[i % len(fallback_terms)])
 
-        print(f"      搜索词[{source}]: {query}")
-
-        urls = search_pexels(query, api_key, per_page=5)
-
-        # 下载第一张成功的图片
         downloaded = False
-        for j, img_url in enumerate(urls):
-            ext = 'jpg'
-            save_path = img_dir / f"shot_{seg['id']:02d}_{j}.{ext}"
-            if download_image(img_url, save_path):
-                results.append({
-                    'id': seg['id'],
-                    'image_path': str(save_path),
-                    'search_query': query,
-                })
-                downloaded = True
-                print(f"      ✓ 已下载: {query} → {save_path.name}")
+        best = None
+        candidate_index = 0
+        for raw_query in query_candidates:
+            base_query = prefer_chinese_people_query(raw_query)
+            if not base_query:
+                continue
+            query = base_query
+            suffix = 1
+            while query in used_queries:
+                query = f'{base_query} vivid {suffix}'
+                suffix += 1
+            used_queries.add(query)
+            print(f"      搜索词[{source if raw_query != fallback_terms[i % len(fallback_terms)] else '泛用'}]: {query}")
+            candidates = search_pexels(query, api_key, per_page=8)
+            query_downloads = 0
+            for candidate in candidates:
+                image_id = candidate.get('id') or ''
+                image_url = candidate.get('url') or ''
+                keys = {f'id:{image_id}'} if image_id else set()
+                if image_url:
+                    keys.add(f'url:{image_url}')
+                if keys & used_image_keys:
+                    continue
+                if candidate.get('width', 0) and candidate.get('height', 0):
+                    if candidate['width'] < 1080 or candidate['height'] < 1600:
+                        continue
+                save_path = img_dir / f"shot_{seg['id']:02d}_{candidate_index}.jpg"
+                candidate_index += 1
+                query_downloads += 1
+                if not download_image(image_url, save_path):
+                    continue
+                score = inspect_image_quality(save_path)
+                if score is None:
+                    try:
+                        save_path.unlink()
+                    except OSError:
+                        pass
+                    continue
+                if best is None or score > best[0]:
+                    if best is not None:
+                        try:
+                            best[2].unlink()
+                        except OSError:
+                            pass
+                    best = (score, candidate, save_path, query, keys)
+                else:
+                    try:
+                        save_path.unlink()
+                    except OSError:
+                        pass
+                # 每个关键词只评估少量候选, 避免下载过多原图。
+                if query_downloads >= 5:
+                    break
+            if best is not None and source == 'AI':
+                # 第一组关键词已经找到合格图时, 不再扩大搜索范围。
                 break
 
-        if not downloaded:
-            print(f"      ✗ 未找到图片, 使用默认搜索词")
-            # 最后的兜底
-            fallback_query = fallback_terms[i % len(fallback_terms)]
-            urls = search_pexels(fallback_query, api_key, per_page=3)
-            for j, img_url in enumerate(urls):
-                save_path = img_dir / f"shot_{seg['id']:02d}_fallback.{ext}"
-                if download_image(img_url, save_path):
-                    results.append({
-                        'id': seg['id'],
-                        'image_path': str(save_path),
-                        'search_query': fallback_query,
-                    })
-                    print(f"      ✓ 兜底下载: {fallback_query}")
-                    downloaded = True
-                    break
+        if best is not None:
+            _, candidate, save_path, query, keys = best
+            results.append({
+                'id': seg['id'],
+                'image_path': str(save_path),
+                'search_query': query,
+                'image_id': candidate.get('id', ''),
+            })
+            used_image_keys.update(keys)
+            history_entries.append({
+                'id': candidate.get('id', ''),
+                'url': candidate.get('url', ''),
+                'used_at': datetime.now(timezone.utc).isoformat(),
+            })
+            downloaded = True
+            print(f"      ✓ 已下载: {query} → {save_path.name}")
 
         if not downloaded:
-            print(f"      ✗ 分镜{seg['id']}图片获取失败!")
+            print(f"      ✗ 分镜{seg['id']}未找到满足尺寸和画质要求的图片")
 
         time.sleep(0.5)  # 避免API频率限制
 
+    save_image_history(config, history_entries)
     return fill_missing_story_images(segments, results)
 
 
@@ -469,6 +653,8 @@ def generate_tts(text, output_path, voice, rate="-5%"):
         word_boundaries: [{'text': str, 'start': float(秒), 'end': float(秒)}, ...]
     """
     import edge_tts
+
+    text = to_simplified(text)
 
     boundaries = []
     c = edge_tts.Communicate(text, voice, rate=rate, boundary='WordBoundary')
@@ -685,7 +871,7 @@ def generate_srt(segments, total_duration, output_path):
             return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
         # 将长文本分行显示(每行最多20个字)
-        text = seg['text']
+        text = to_simplified(seg['text'])
         display_lines = []
         for j in range(0, len(text), 18):
             display_lines.append(text[j:j+18])
@@ -713,6 +899,8 @@ def synthesize_video(segments, image_results, audio_path, title, config, output_
     4. 添加标题栏
     5. 添加字幕
     """
+    title = to_simplified(title)
+    segments = [dict(seg, text=to_simplified(seg.get('text', ''))) for seg in segments]
     ffmpeg = config['ffmpeg_path']
     W = config['video_width']
     H = config['video_height']

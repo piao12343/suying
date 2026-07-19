@@ -119,6 +119,60 @@ export default {
       return jsonResponse({ ok: true, ...log });
     }
 
+    // ---------- API: 读取近期图片历史 ----------
+    if (url.pathname === '/api/image-history' && request.method === 'GET') {
+      const secret = url.searchParams.get('secret') || '';
+      if (SECRET && secret !== SECRET) {
+        return jsonResponse({ error: '密码错误' }, 403);
+      }
+      const raw = await env.LINKS.get('image_history');
+      let images = [];
+      try {
+        const parsed = raw ? JSON.parse(raw) : [];
+        images = Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        images = [];
+      }
+      return jsonResponse({ ok: true, images });
+    }
+
+    // ---------- API: 写入近期图片历史 ----------
+    if (url.pathname === '/api/image-history' && request.method === 'POST') {
+      const body = await request.json();
+      const secret = body.secret || '';
+      if (SECRET && secret !== SECRET) {
+        return jsonResponse({ error: '密码错误' }, 403);
+      }
+      const incoming = Array.isArray(body.images) ? body.images : [];
+      const raw = await env.LINKS.get('image_history');
+      let oldImages = [];
+      try {
+        const parsed = raw ? JSON.parse(raw) : [];
+        oldImages = Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        oldImages = [];
+      }
+      const merged = [...oldImages, ...incoming]
+        .filter(item => item && (item.id || item.url))
+        .map(item => ({
+          id: String(item.id || ''),
+          url: String(item.url || ''),
+          used_at: String(item.used_at || new Date().toISOString()),
+        }));
+      const unique = [];
+      const seen = new Set();
+      for (let i = merged.length - 1; i >= 0; i -= 1) {
+        const item = merged[i];
+        const key = item.id ? `id:${item.id}` : `url:${item.url}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        unique.push(item);
+      }
+      unique.reverse();
+      await env.LINKS.put('image_history', JSON.stringify(unique.slice(-100)));
+      return jsonResponse({ ok: true, count: Math.min(unique.length, 100) });
+    }
+
     // ---------- API: 轮询取队首链接 ----------
     if (url.pathname === '/api/poll' && request.method === 'GET') {
       const secret = url.searchParams.get('secret') || '';
