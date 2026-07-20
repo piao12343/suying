@@ -111,7 +111,26 @@ def strip_leading_title_repetition(title, narration, source_title=''):
     for candidate in candidates:
         plain_pattern = rf'^\s*{re.escape(candidate)}(?:[。！？?!、，,：:；;\s]+|$)'
         wrapped_pattern = rf'^\s*[《「“"\'【\[]\s*{re.escape(candidate)}\s*[》」”"\'】\]]\s*'
-        for pattern in (plain_pattern, wrapped_pattern):
+        title_marker_pattern = (
+            r'^\s*'
+            r'(?:[【\[\(（<《「“"\']\s*)?'
+            r'(?:标题|標題)\s*'
+            r'(?:[】\]\)）>》」”"\']\s*)?'
+            r'(?:[:：\-—]\s*)?'
+            + re.escape(candidate)
+            + r'(?:[。！？?!、，,：:；;\s]+|$)'
+        )
+        title_marker_wrapped_pattern = (
+            r'^\s*'
+            r'(?:[【\[\(（<《「“"\']\s*)?'
+            r'(?:标题|標題)\s*'
+            r'(?:[】\]\)）>》」”"\']\s*)?'
+            r'(?:[:：\-—]\s*)?'
+            r'[《「“"\']\s*'
+            + re.escape(candidate)
+            + r'\s*[》」”"\'](?:[。！？?!、，,：:；;\s]+|$)'
+        )
+        for pattern in (plain_pattern, wrapped_pattern, title_marker_pattern, title_marker_wrapped_pattern):
             m = re.match(pattern, narration)
             if m:
                 return title, narration[m.end():].lstrip()
