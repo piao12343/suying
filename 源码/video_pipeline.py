@@ -46,7 +46,7 @@ def to_simplified(text):
     return _OPENCC_CONVERTER.convert(str(text))
 
 
-def parse_rewrite_output(text, fallback_title=''):
+def parse_rewrite_output(text, fallback_title='', source_title=''):
     """解析并清理 AI 改写结果, 返回 (标题, 正文, 是否包含格式标记)。"""
     text = to_simplified(str(text or '').strip())
     title_match = re.search(r'【标题】\s*\r?\n?\s*([^\r\n]+)', text)
@@ -66,7 +66,7 @@ def parse_rewrite_output(text, fallback_title=''):
         title = nested_title or title
         narration = nested_body
         has_format = True
-    title, narration = strip_leading_title_repetition(title, narration)
+    title, narration = strip_leading_title_repetition(title, narration, source_title)
     return title, to_simplified(narration).strip(), has_format
 
 
@@ -80,17 +80,41 @@ def parse_leading_rewrite_block(text):
     return title_match.group(1).strip(), body_match.group(1).strip(), True
 
 
-def strip_leading_title_repetition(title, narration):
+def extract_source_title_candidate(text):
+    """从原始识别文案开头提取可能的原视频标题。"""
+    text = to_simplified(str(text or '')).strip()
+    if not text:
+        return ''
+    first = re.split(r'[\r\n。！？?!]', text, maxsplit=1)[0].strip()
+    first = re.sub(r'^[《「“"\'【\[]+', '', first)
+    first = re.sub(r'[》」”"\'】\]]+$', '', first).strip()
+    compact = re.sub(r'\s+', '', first)
+    if 2 <= len(compact) <= 12:
+        return compact
+    return ''
+
+
+def strip_leading_title_repetition(title, narration, source_title=''):
     """移除正文开头重复出现的标题。"""
     title = to_simplified(str(title or '')).strip()
+    source_title = to_simplified(str(source_title or '')).strip()
     narration = to_simplified(str(narration or '')).strip()
-    if not title or not narration:
+    if not narration:
         return title, narration
 
-    pattern = rf'^{re.escape(title)}(?:[。！？?!、，,：:；;\s]+|$)'
-    m = re.match(pattern, narration)
-    if m:
-        return title, narration[m.end():].lstrip()
+    candidates = []
+    for candidate in (title, source_title):
+        candidate = re.sub(r'\s+', '', to_simplified(str(candidate or '')).strip())
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    for candidate in candidates:
+        plain_pattern = rf'^\s*{re.escape(candidate)}(?:[。！？?!、，,：:；;\s]+|$)'
+        wrapped_pattern = rf'^\s*[《「“"\'【\[]\s*{re.escape(candidate)}\s*[》」”"\'】\]]\s*'
+        for pattern in (plain_pattern, wrapped_pattern):
+            m = re.match(pattern, narration)
+            if m:
+                return title, narration[m.end():].lstrip()
     return title, narration
 
 def load_config(script_dir):

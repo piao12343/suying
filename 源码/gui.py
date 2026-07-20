@@ -148,6 +148,7 @@ class App:
 
         # Debug mode intermediate state
         self.raw_narration = ''
+        self.source_title = ''
         self.title = ''
         self.narration = ''
         self.segments = []
@@ -658,14 +659,17 @@ class App:
             if idx == 0:
                 txt = self.t1_text.get('1.0', 'end').strip()
                 if txt:
+                    from video_pipeline import extract_source_title_candidate, to_simplified
+                    txt = to_simplified(txt)
                     self.raw_narration = txt
+                    self.source_title = extract_source_title_candidate(txt)
 
             elif idx == 1:
                 txt = self.t2_text.get('1.0', 'end').strip()
                 if not txt:
                     return
                 from video_pipeline import parse_rewrite_output
-                t, b, _ = parse_rewrite_output(txt, self.title)
+                t, b, _ = parse_rewrite_output(txt, self.title, self.source_title)
                 if t and b:
                     self.title = t
                     self.narration = b
@@ -1303,6 +1307,8 @@ class App:
         raw = to_simplified(raw)
         self.log(f'  文案长度: {len(raw)} 字')
         self.raw_narration = raw
+        from video_pipeline import extract_source_title_candidate
+        self.source_title = extract_source_title_candidate(raw)
 
         self.t1_text.delete('1.0', 'end')
         self.t1_text.insert('1.0', raw)
@@ -1312,7 +1318,12 @@ class App:
 
     def _step2_rewrite(self):
         config = load_config()
-        from video_pipeline import parse_rewrite_output, to_simplified
+        from video_pipeline import (
+            extract_source_title_candidate,
+            parse_rewrite_output,
+            strip_leading_title_repetition,
+            to_simplified,
+        )
 
         self.set_step(2, 'active')
         self.set_status('AI改写中...')
@@ -1320,7 +1331,9 @@ class App:
         self.log('[步骤2/7] AI改写文案...')
 
         raw = to_simplified(self.raw_narration)
-        title, narration, has_format = parse_rewrite_output(raw, raw[:6])
+        source_title = extract_source_title_candidate(raw)
+        self.source_title = source_title
+        title, narration, has_format = parse_rewrite_output(raw, raw[:6], source_title)
         if has_format:
             self.log('  已有格式标记, 跳过改写')
         else:
@@ -1345,7 +1358,7 @@ class App:
             txt = d['choices'][0]['message']['content'].strip()
             usage = d.get('usage', {})
             self.log(f'  tokens: {usage.get("total_tokens", 0)}, cost: ${usage.get("cost", 0)}')
-            title, narration, _ = parse_rewrite_output(txt, raw[:6])
+            title, narration, _ = parse_rewrite_output(txt, raw[:6], source_title)
             for compress_idx in range(1, 3):
                 if len(narration) <= 1400:
                     break
@@ -1385,14 +1398,15 @@ class App:
                 txt2 = d2['choices'][0]['message']['content'].strip()
                 usage2 = d2.get('usage', {})
                 self.log(f'  第{compress_idx}次压缩 tokens: {usage2.get("total_tokens", 0)}, cost: ${usage2.get("cost", 0)}')
-                title2, narration2, has_format2 = parse_rewrite_output(txt2, title)
+                title2, narration2, has_format2 = parse_rewrite_output(txt2, title, source_title)
                 if has_format2:
                     title, narration = title2 or title, narration2
                 else:
-                    narration = to_simplified(txt2)
+                    _, narration = strip_leading_title_repetition(title, txt2, source_title)
                 self.log(f'  第{compress_idx}次压缩后文案: {len(narration)} 字')
 
         self.title = to_simplified(title).strip()
+        _, narration = strip_leading_title_repetition(self.title, narration, source_title)
         self.narration = to_simplified(narration).strip()
         title, narration = self.title, self.narration
         self.log(f'  标题: {title}')
@@ -1416,12 +1430,13 @@ class App:
         self.log_q.put(('tab', 1))
 
     def _step3_split(self):
-        from video_pipeline import ai_split_narration, to_simplified
+        from video_pipeline import ai_split_narration, strip_leading_title_repetition, to_simplified
         config = load_config()
 
         self._auto_save_edits()
         self.title = to_simplified(self.title).strip()
-        self.narration = to_simplified(self.narration).strip()
+        _, narration = strip_leading_title_repetition(self.title, self.narration, self.source_title)
+        self.narration = to_simplified(narration).strip()
 
         self.set_step(3, 'active')
         self.set_status('分镜切分中...')
@@ -1480,11 +1495,12 @@ class App:
         self.log_q.put(('tab', 3))
 
     def _step5_tts(self):
-        from video_pipeline import generate_tts, to_simplified
+        from video_pipeline import generate_tts, strip_leading_title_repetition, to_simplified
         config = load_config()
 
         self._auto_save_edits()
-        self.narration = to_simplified(self.narration).strip()
+        _, narration = strip_leading_title_repetition(self.title, self.narration, self.source_title)
+        self.narration = to_simplified(narration).strip()
 
         self.set_step(5, 'active')
         self.set_status('TTS合成中...')

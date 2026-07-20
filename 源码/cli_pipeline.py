@@ -185,6 +185,7 @@ class Pipeline:
     def __init__(self, config):
         self.config = config
         self.raw_narration = ''
+        self.source_title = ''
         self.title = ''
         self.narration = ''
         self.segments = []
@@ -261,16 +262,25 @@ class Pipeline:
         raw = to_simplified(raw)
         log(f'  文案长度: {len(raw)} 字')
         self.raw_narration = raw
+        from video_pipeline import extract_source_title_candidate
+        self.source_title = extract_source_title_candidate(raw)
 
     # -------- Step 2: AI rewrite --------
     def step2_rewrite(self):
-        from video_pipeline import parse_rewrite_output, to_simplified
+        from video_pipeline import (
+            extract_source_title_candidate,
+            parse_rewrite_output,
+            strip_leading_title_repetition,
+            to_simplified,
+        )
 
         log('=' * 50)
         log('[步骤2/7] AI改写文案...')
 
         raw = to_simplified(self.raw_narration)
-        title, narration, has_format = parse_rewrite_output(raw, raw[:6])
+        source_title = extract_source_title_candidate(raw)
+        self.source_title = source_title
+        title, narration, has_format = parse_rewrite_output(raw, raw[:6], source_title)
         if has_format:
             log('  已有格式标记, 跳过改写')
         else:
@@ -300,7 +310,7 @@ class Pipeline:
             txt = d['choices'][0]['message']['content'].strip()
             usage = d.get('usage', {})
             log(f'  tokens: {usage.get("total_tokens", 0)}, cost: ${usage.get("cost", 0)}')
-            title, narration, _ = parse_rewrite_output(txt, raw[:6])
+            title, narration, _ = parse_rewrite_output(txt, raw[:6], source_title)
             for compress_idx in range(1, 3):
                 if len(narration) <= 1400:
                     break
@@ -340,14 +350,15 @@ class Pipeline:
                 txt2 = d2['choices'][0]['message']['content'].strip()
                 usage2 = d2.get('usage', {})
                 log(f'  第{compress_idx}次压缩 tokens: {usage2.get("total_tokens", 0)}, cost: ${usage2.get("cost", 0)}')
-                title2, narration2, has_format2 = parse_rewrite_output(txt2, title)
+                title2, narration2, has_format2 = parse_rewrite_output(txt2, title, source_title)
                 if has_format2:
                     title, narration = title2 or title, narration2
                 else:
-                    narration = to_simplified(txt2)
+                    _, narration = strip_leading_title_repetition(title, txt2, source_title)
                 log(f'  第{compress_idx}次压缩后文案: {len(narration)} 字')
 
         self.title = to_simplified(title).strip()
+        _, narration = strip_leading_title_repetition(self.title, narration, source_title)
         self.narration = to_simplified(narration).strip()
         title, narration = self.title, self.narration
         log(f'  标题: {title}')
@@ -363,13 +374,14 @@ class Pipeline:
 
     # -------- Step 3: Storyboard split --------
     def step3_split(self):
-        from video_pipeline import ai_split_narration, to_simplified
+        from video_pipeline import ai_split_narration, strip_leading_title_repetition, to_simplified
 
         log('=' * 50)
         log('[步骤3/7] 分镜切分...')
 
         self.title = to_simplified(self.title).strip()
-        self.narration = to_simplified(self.narration).strip()
+        _, narration = strip_leading_title_repetition(self.title, self.narration, self.source_title)
+        self.narration = to_simplified(narration).strip()
         num_shots = self.config.get('num_shots', 5)
         log(f'  尝试AI按故事情节分镜, 最多 {num_shots} 段...')
         segs = ai_split_narration(self.narration, self.config, num_shots, log_func=log)
@@ -407,9 +419,10 @@ class Pipeline:
 
     # -------- Step 5: TTS synthesis --------
     def step5_tts(self):
-        from video_pipeline import generate_tts, to_simplified
+        from video_pipeline import generate_tts, strip_leading_title_repetition, to_simplified
 
-        self.narration = to_simplified(self.narration).strip()
+        _, narration = strip_leading_title_repetition(self.title, self.narration, self.source_title)
+        self.narration = to_simplified(narration).strip()
         log('=' * 50)
         log(f'[步骤5/7] TTS语音合成 ({self.config["tts_voice"]})...')
 
