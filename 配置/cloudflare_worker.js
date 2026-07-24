@@ -119,6 +119,49 @@ export default {
       return jsonResponse({ ok: true, ...log });
     }
 
+    // ---------- API: 读取失败链接 ----------
+    if (url.pathname === '/api/failed' && request.method === 'GET') {
+      const secret = url.searchParams.get('secret') || url.searchParams.get('s') || '';
+      if (SECRET && secret !== SECRET) {
+        return jsonResponse({ error: '密码错误' }, 403);
+      }
+      const failed = await readFailedLinks(env);
+      return jsonResponse({ ok: true, failed });
+    }
+
+    // ---------- API: 重新提交失败链接 ----------
+    if (url.pathname === '/api/retry-failed' && request.method === 'POST') {
+      const body = await request.json();
+      const secret = body.secret || '';
+      if (SECRET && secret !== SECRET) {
+        return jsonResponse({ error: '密码错误' }, 403);
+      }
+      const result = await retryFailedLink(env, body.id || '', body.link || '');
+      if (!result.ok) {
+        return jsonResponse(result, 404);
+      }
+      ctx.waitUntil(ensureWorkflowRunning(env, debugLogsEnabled));
+      return jsonResponse({
+        ...result,
+        logUrl: debugLogsEnabled ? `/log?s=${encodeURIComponent(secret)}` : '',
+      });
+    }
+
+    // ---------- API: 删除失败链接 ----------
+    if (url.pathname === '/api/delete-failed' && request.method === 'POST') {
+      const body = await request.json();
+      const secret = body.secret || '';
+      if (SECRET && secret !== SECRET) {
+        return jsonResponse({ error: '密码错误' }, 403);
+      }
+      const failed = await readFailedLinks(env);
+      const id = String(body.id || '');
+      const link = String(body.link || '');
+      const next = failed.filter(item => !(id && item.id === id) && !(link && item.link === link));
+      await env.LINKS.put('failed_links', JSON.stringify(next.slice(-50)));
+      return jsonResponse({ ok: true, count: next.length });
+    }
+
     // ---------- API: 读取近期图片历史 ----------
     if (url.pathname === '/api/image-history' && request.method === 'GET') {
       const secret = url.searchParams.get('secret') || '';
@@ -210,6 +253,7 @@ export default {
         return jsonResponse({ error: '密码错误' }, 403);
       }
       if (body.success === false) {
+        await saveActiveFailedLink(env, body);
         await releaseActivePublishSchedule(env);
       }
       await env.LINKS.delete('active_item');
@@ -336,6 +380,74 @@ async function releaseActivePublishSchedule(env) {
 
 // ---- 工具函数 ----
 
+async function readFailedLinks(env) {
+  const raw = await env.LINKS.get('failed_links');
+  try {
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+async function saveActiveFailedLink(env, body = {}) {
+  const raw = await env.LINKS.get('active_item');
+  if (!raw) {
+    return;
+  }
+  let active;
+  try {
+    active = JSON.parse(raw);
+  } catch (_) {
+    return;
+  }
+  if (!active || !active.link) {
+    return;
+  }
+  const log = await readCurrentLog(env);
+  const failed = await readFailedLinks(env);
+  const reason = String(body.reason || body.error || '云端任务失败');
+  const item = {
+    id: String(active.id || Date.now().toString(36)),
+    link: String(active.link || ''),
+    time: String(active.time || ''),
+    failedAt: new Date().toISOString(),
+    reason,
+    publish_strategy: String(active.publish_strategy || ''),
+    publish_date: String(active.publish_date || ''),
+    logTail: Array.isArray(log.lines) ? log.lines.slice(-30) : [],
+  };
+  const next = failed.filter(old => old.link !== item.link);
+  next.push(item);
+  await env.LINKS.put('failed_links', JSON.stringify(next.slice(-50)));
+}
+
+async function retryFailedLink(env, id, link) {
+  const failed = await readFailedLinks(env);
+  const target = failed.find(item => (id && item.id === id) || (link && item.link === link));
+  if (!target || !target.link) {
+    return { ok: false, error: '失败记录不存在' };
+  }
+
+  const pendingRaw = await env.LINKS.get('pending');
+  const pending = pendingRaw ? JSON.parse(pendingRaw) : [];
+  const alreadyQueued = pending.some(item => item && item.link === target.link);
+  if (!alreadyQueued) {
+    pending.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      link: target.link,
+      time: new Date().toISOString(),
+      retry_of: target.id || '',
+      retry_failed_at: target.failedAt || '',
+    });
+    await env.LINKS.put('pending', JSON.stringify(pending));
+  }
+
+  const nextFailed = failed.filter(item => item !== target);
+  await env.LINKS.put('failed_links', JSON.stringify(nextFailed.slice(-50)));
+  return { ok: true, queued: !alreadyQueued, alreadyQueued, link: target.link };
+}
+
 async function readCurrentLog(env) {
   const raw = await env.LINKS.get('debug_log_current');
   if (!raw) {
@@ -415,8 +527,18 @@ textarea:focus{border-color:#4a90d9}
 button{width:100%;margin-top:16px;padding:14px;border:none;border-radius:10px;
   background:#4a90d9;color:#fff;font-size:16px;font-weight:600;cursor:pointer}
 button:active{background:#3a7bc8}
+.ghost{width:auto;margin-top:8px;margin-right:8px;padding:8px 10px;border-radius:8px;
+  background:#eef5fc;color:#357abd;font-size:13px}
+.danger{background:#fff0f0;color:#d64545}
+a{color:#4a90d9;font-weight:600}
 #status{margin-top:20px;text-align:center;font-size:14px;color:#888;
-  min-height:20px}
+  min-height:20px;line-height:1.8}
+#failedBox{margin-top:22px;border-top:1px solid #eee;padding-top:16px}
+#failedBox h2{font-size:16px;margin-bottom:10px;color:#333}
+.failed-item{border:1px solid #eee;border-radius:10px;padding:10px;margin-top:10px;
+  font-size:13px;color:#555;line-height:1.6;background:#fafafa}
+.failed-link{word-break:break-all;color:#333}
+.failed-meta{color:#888}
 .success{color:#2ecc71!important}
 .error{color:#e74c3c!important}
 </style>
@@ -427,6 +549,10 @@ button:active{background:#3a7bc8}
   <textarea id="link" placeholder="在抖音中复制链接, 粘贴到这里"></textarea>
   <button onclick="submit()">提交并生成视频</button>
   <p id="status"></p>
+  <div id="failedBox">
+    <h2>最近失败任务</h2>
+    <div id="failedList">加载中...</div>
+  </div>
 </div>
 <script>
 const SECRET = new URLSearchParams(location.search).get('s') || '';
@@ -451,6 +577,7 @@ async function submit(){
       }
       st.className='success';
       document.getElementById('link').value='';
+      loadFailed();
     }else{
       st.textContent='提交失败: '+(d.error||'未知错误');
       st.className='error';
@@ -459,6 +586,73 @@ async function submit(){
     st.textContent='网络错误, 请重试';st.className='error';
   }
 }
+
+function esc(s){
+  return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function fmtTime(s){
+  if(!s)return '';
+  try{return new Date(s).toLocaleString()}catch(e){return s}
+}
+
+async function loadFailed(){
+  const box = document.getElementById('failedList');
+  try{
+    const r = await fetch('/api/failed?s=' + encodeURIComponent(SECRET));
+    const d = await r.json();
+    if(!d.ok){box.textContent=d.error||'读取失败';return}
+    const items = d.failed || [];
+    if(!items.length){box.textContent='暂无失败任务';return}
+    box.innerHTML = items.slice().reverse().map(item =>
+      '<div class="failed-item">' +
+      '<div class="failed-link">' + esc(item.link) + '</div>' +
+      '<div class="failed-meta">失败时间：' + esc(fmtTime(item.failedAt)) + '</div>' +
+      '<div class="failed-meta">原因：' + esc(item.reason || '云端任务失败') + '</div>' +
+      '<button class="ghost" onclick="retryFailed(\'' + esc(item.id) + '\')">重新提交</button>' +
+      '<button class="ghost danger" onclick="deleteFailed(\'' + esc(item.id) + '\')">删除</button>' +
+      '</div>'
+    ).join('');
+  }catch(e){
+    box.textContent='读取失败任务失败';
+  }
+}
+
+async function retryFailed(id){
+  const st = document.getElementById('status');
+  st.textContent='重新提交中...';st.className='';
+  try{
+    const r = await fetch('/api/retry-failed',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:id,secret:SECRET})
+    });
+    const d = await r.json();
+    if(d.ok){
+      st.innerHTML='已重新提交失败链接。' + (d.logUrl ? '<br><a href="'+d.logUrl+'">查看云端日志</a>' : '');
+      st.className='success';
+      loadFailed();
+    }else{
+      st.textContent='重新提交失败: '+(d.error||'未知错误');
+      st.className='error';
+    }
+  }catch(e){
+    st.textContent='网络错误, 请重试';st.className='error';
+  }
+}
+
+async function deleteFailed(id){
+  try{
+    await fetch('/api/delete-failed',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:id,secret:SECRET})
+    });
+    loadFailed();
+  }catch(e){}
+}
+
+loadFailed();
 </script>
 </body>
 </html>`;
