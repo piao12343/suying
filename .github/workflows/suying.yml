@@ -153,15 +153,17 @@ jobs:
         if: steps.poll.outputs.has_work == 'true'
         run: |
           python 源码/cloud_log_relay.py --line "开始准备 social-auto-upload 发布组件。"
+          SAU_COMMIT=d32280c98b51057915cfb61f5fec139a464b8178
           if [ ! -f 配置/social-auto-upload/uploader/douyin_uploader/main.py ]; then
             rm -rf 配置/social-auto-upload
-            git clone --depth 1 https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
+            git clone --no-checkout https://github.com/dreammis/social-auto-upload.git 配置/social-auto-upload
+            cd 配置/social-auto-upload
           else
             cd 配置/social-auto-upload
-            git fetch --depth 1 origin main
-            git reset --hard origin/main
-            cd "${{ github.workspace }}"
           fi
+          git fetch --depth 1 origin "$SAU_COMMIT"
+          git checkout --force "$SAU_COMMIT"
+          cd "${{ github.workspace }}"
           cd 配置/social-auto-upload
           cp conf.example.py conf.py
           python "${{ github.workspace }}/源码/cloud_patch_sau.py"

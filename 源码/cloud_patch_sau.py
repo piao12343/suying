@@ -170,7 +170,7 @@ def patch():
     if old_decl in code:
         code = code.replace(old_decl, new_decl, 1)
         print('[OK] step4: self declaration default -> 无需添加自主声明')
-    elif new_decl in code:
+    elif new_decl in code or ('set_self_declaration' in code and '无需添加自主声明' in code):
         print('[OK] step4: self declaration default already patched')
     else:
         print('[FAIL] step4: self declaration default marker not found')
